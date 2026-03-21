@@ -1,12 +1,12 @@
 """Testing Agent — pipeline fidelity on real arXiv papers.
 
-Run by saying "Run testing agent on seed 42" to Claude (see agents.md),
+Run by saying "Run testing agent on seed 42" to Claude (see AGENTS.md),
 or directly:
 
     python scripts/test_fidelity.py --seed 42
     python scripts/test_fidelity.py --ids 2401.12345 2312.09876
 
-This script implements the Testing Agent protocol described in agents.md:
+This script implements the Testing Agent protocol described in AGENTS.md:
   Step 1  — acquire lock
   Step 2  — sample papers
   Step 3  — compile baseline PDFs
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import difflib
 import hashlib
 import json
 import logging
@@ -34,7 +35,6 @@ from pathlib import Path
 
 import numpy as np
 import pdfplumber
-import difflib
 from pdf2image import convert_from_path
 from skimage.metrics import structural_similarity
 from tqdm import tqdm
@@ -45,14 +45,14 @@ RUNS_DIR   = REPO_ROOT / 'tests' / 'runs'
 LOCK_FILE  = RUNS_DIR / '.agent.lock'
 LOCK_TTL   = 4 * 3600   # seconds — stale lock threshold
 
-# Paper distribution per run (see agents.md Step 2).
+# Paper distribution per run (see AGENTS.md Step 2).
 _DEFAULT_CATEGORIES = ['math.CT', 'math.CT', 'math.AT', 'math.AT', 'cs.LO']
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Lock protocol (agents.md §Locking Protocol)
+# Lock protocol (AGENTS.md §Locking Protocol)
 # ---------------------------------------------------------------------------
 
 def _acquire_lock(agent_name: str = 'test_fidelity') -> None:
@@ -88,6 +88,7 @@ def _sha256(path: Path) -> str:
 def _download_arxiv(arxiv_id: str, dest_dir: Path) -> Path:
     """Download arXiv source tarball to dest_dir. Returns path to tarball."""
     import tarfile
+
     import requests
 
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +114,6 @@ def _download_arxiv(arxiv_id: str, dest_dir: Path) -> Path:
 
 def _sample_papers(n: int, seed: int) -> list[dict]:
     """Return n paper metadata dicts, downloading from arXiv."""
-    import sys
     sys.path.insert(0, str(REPO_ROOT / 'scripts'))
     from extractor import get_all_arxiv_ids  # type: ignore[import]
 
@@ -187,8 +187,9 @@ def _page_count(pdf: Path) -> int | None:
 def _run_pipeline(raw_data_dir: Path, run_dir: Path) -> dict:
     """Unfold and demacro. Saves pipeline_output.tex and demacro_report.json."""
     import logging as _logging
-    from texphage.unfold import unfold
+
     from texphage.demacro import demacro, preprocessing
+    from texphage.unfold import unfold
 
     log_path = run_dir / 'pipeline.log'
     _logging.basicConfig(level=_logging.DEBUG, filename=str(log_path), force=True)
@@ -270,15 +271,16 @@ def _save_visual_diff(
     n = max(len(b_pages), len(o_pages))
     diff_dir.mkdir(exist_ok=True)
 
-    from PIL import Image, ImageDraw
+    from PIL import Image
 
     blank_arr: np.ndarray | None = None
 
     for i, score in enumerate(ssim_scores):
         if score >= 0.95:
             continue
-        b_arr = np.array(b_pages[i]) if i < len(b_pages) else (blank_arr or np.zeros((100, 100), dtype=np.uint8))
-        o_arr = np.array(o_pages[i]) if i < len(o_pages) else (blank_arr or np.zeros((100, 100), dtype=np.uint8))
+        _blank = blank_arr if blank_arr is not None else np.zeros((100, 100), dtype=np.uint8)
+        b_arr = np.array(b_pages[i]) if i < len(b_pages) else _blank
+        o_arr = np.array(o_pages[i]) if i < len(o_pages) else _blank
         if blank_arr is None:
             blank_arr = np.zeros_like(b_arr)
 
@@ -292,7 +294,9 @@ def _save_visual_diff(
             return out
 
         b_padded, o_padded = pad(b_arr), pad(o_arr)
-        diff_arr = np.clip(np.abs(b_padded.astype(int) - o_padded.astype(int)) * 5, 0, 255).astype(np.uint8)
+        diff_arr = np.clip(
+            np.abs(b_padded.astype(int) - o_padded.astype(int)) * 5, 0, 255
+        ).astype(np.uint8)
 
         combined = np.concatenate([b_padded, o_padded, diff_arr], axis=1)
         Image.fromarray(combined).save(str(diff_dir / f'page_{i+1}_diff.png'))
@@ -365,7 +369,7 @@ def _compare(paper_dir: Path, baseline_pdf: Path, output_pdf: Path,
         diff_lines = []
     comp['text_diff_lines'] = len(diff_lines)
 
-    # Severity classification (agents.md §6c/6d)
+    # Severity classification (AGENTS.md §6c/6d)
     severity = 'OK'
     if page_delta > 2:
         severity = 'HIGH'
@@ -481,7 +485,9 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
                 _run_pipeline(raw_data, paper_dir)
             except Exception as e:
                 logger.error("%s: pipeline failed: %s", arxiv_id, e, exc_info=True)
-                results_summary.append({'arxiv_id': arxiv_id, 'status': 'pipeline_failed', 'error': str(e)})
+                results_summary.append({
+                    'arxiv_id': arxiv_id, 'status': 'pipeline_failed', 'error': str(e),
+                })
                 continue
 
             # Step 5 — Compile pipeline output
@@ -529,7 +535,7 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
         print(f"  OK:       {severities.count('OK')}")
         print(f"\nResults written to: {run_dir}")
         print("Review comparison.json and visual_diff/ for each paper.")
-        print("Add bugs to BUGS.md (see agents.md Step 8).")
+        print("Add bugs to BUGS.md (see AGENTS.md Step 8).")
 
         return manifest
 

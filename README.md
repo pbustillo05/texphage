@@ -131,7 +131,7 @@ contains end-to-end regression tests that require `latexmk`.
 ## Continuous Improvement (Claude workflow)
 
 When asking Claude to improve this codebase, Claude follows the protocol in
-`agents.md`. Common triggers:
+`AGENTS.md`. Common triggers:
 
 - `"Run testing agent on seed 42"` → downloads arXiv papers, compares PDF output
 - `"Fix BUG-N"` → follows the Coding Agent checklist

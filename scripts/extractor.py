@@ -1,18 +1,17 @@
 import argparse
+import gzip
+import os
 import re
 import shutil
-import os
-import glob
-import gzip
 import sys
 import tarfile
-import requests
 import urllib.request
-from tqdm import tqdm
-from typing import List
 
-from texphage.unfold import unfold
+import requests
+from tqdm import tqdm
+
 from texphage.demacro import demacro
+from texphage.unfold import unfold
 
 sys.path.append('.')
 
@@ -89,15 +88,7 @@ def process_arxiv_id(id, output_dir, force):
     return tex
 
 
-# TODO: implement xy_to_tikzcd converter
-# def xy_to_tikzcd(tex):
-#     ...
-
-# find_tikzcd: not yet implemented — see src/texphage/extract_latex.py
-# from texphage.extract_latex import find_tikzcd
-
-
-def get_all_arxiv_ids(num, category, year) -> List[str]:
+def get_all_arxiv_ids(num, category, year) -> list[str]:
     print(f"Getting first {num} arxiv ID's from {category} in year {year}...")
 
     arxiv_id_regex = re.compile(r'(?<!\d)(\d{4}\.\d{5})(?!\d)')
@@ -139,13 +130,13 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extract tikzcd from Latex')
     parser.add_argument('-m', '--mode', required=True, choices=['top', 'ids'],
-                        help='Where to extract code from: \n \
-                                top:  Get n latest papers in a given category using the arxiv category encoding. (Usage: python arxiv.py -m top <n> <category>)\n \
-                                ids:  Specific arxiv ids (Usage:python arxiv.py -m id <ids>)')
+                        help='Source: top=latest N papers in category, ids=specific arXiv IDs')
     parser.add_argument(nargs='*', dest='args', default=[])
     parser.add_argument('-o', '--out', help='output directory')
-    parser.add_argument('-s', '--save', type=str, help='When downloading files from arxiv. Where to save uncompressed files. Default: Only temporary')
-    parser.add_argument('-f', '--force', action='store_true', help='If output for this arxiv id already exists, overwrite it')
+    parser.add_argument('-s', '--save', type=str,
+                        help='Save uncompressed files here (default: temp only)')
+    parser.add_argument('-f', '--force', action='store_true',
+                        help='Overwrite existing output for an arXiv ID')
     parser.add_argument('-l', '--memory_limit', help='Set a max memory limit')
 
     main(parser.parse_args())

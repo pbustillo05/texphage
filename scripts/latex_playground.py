@@ -28,7 +28,7 @@ import argparse
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # Always wrap snippets in a minimal article so latexmk has a complete document.
@@ -98,7 +98,7 @@ def compile_snippet(
             return PlaygroundResult(
                 tex_source=tex, ok=False, exit_code=-1,
                 log='[TIMEOUT]', pdf_path=None, pdf_text='',
-                error_lines=['TIMEOUT after %ds' % timeout],
+                error_lines=[f'TIMEOUT after {timeout}s'],
             )
 
         # Extract text from PDF if produced.
