@@ -29,7 +29,7 @@
     # etoolbox: \(renew|new|provide)robustcmd(*) + many many weird stuff
     # twoopt: \(renew|new|provide)commandtwoopt with 2 optional arguments
 # suffix: \withsuffix weird stuff
-    # environ: \NewEnviron 
+    # environ: \NewEnviron
         #\NewEnviron{⟨name⟩}[⟨N. args⟩][⟨opt. arg.⟩]{⟨macro code⟩}[⟨final code⟩] with \BODY of \environbodyname\.. and \environfinalcode{...}
     # newenviron: \newenviron (very similar)
         #\newenviron{⟨name⟩}[⟨N. args⟩][⟨opt. arg.⟩]{start code⟩}{(macro code)} with \envbody or \<envname>body
@@ -51,12 +51,27 @@
 # - Add support for \makeatletter and \makeatother: could simply add them when expanding.. this works just fine
 # - Add support for \mathpalette: could replace first argument by \currentmathstyle if the mathstyle package is present (this package seems to break xy though)
 
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from typing import Any
+
 import regex as re
-from .find_packages import find_used_packages
+
 from texphage._regex import (
-    embed_brackets, embed_braces, token, not_tokenizer_char,
-    num_args, find_com, find_env, xparse,
+    embed_braces,
+    embed_brackets,
+    find_com,
+    find_env,
+    num_args,
+    token,
+    xparse,
 )
+
+from .find_packages import find_used_packages
+
+logger = logging.getLogger(__name__)
 
 ## ALL NECESSARY REGEX
 
@@ -64,22 +79,33 @@ from texphage._regex import (
 ### IDEALLY: we use the following find_com to catch macros using a single symbol as a command. Unfortunately, this means a bit more work to adapt the regex..
 # find_com = re.compile(r'\\([a-zA-Z]+|[^a-zA-Z])')
 new_csname = lambda s : r'(?<%s>%s|\{ ?%s ?\})' %(s, find_com.pattern, find_com.pattern)
-def com_name(csname):
-    return find_com.search(csname)[1]
-def env_name(csname):
+def com_name(csname: str) -> str:
+    m = find_com.search(csname)
+    assert m is not None
+    return str(m[1])
+
+
+def env_name(csname: str) -> tuple[str, str]:
     name = find_env.search(csname)
+    assert name is not None
     if name[2]:
-        return (name[1] + '_star', name[1] + r' ?\*')
+        return (str(name[1]) + '_star', str(name[1]) + r' ?\*')
     else:
-        return (name[1], name[1])
+        return (str(name[1]), str(name[1]))
+
+
 find_specific_com = lambda s : r'(?<%s>\\(?:%s)(?![a-zA-Z]))' %(s,s)
-def find_specific_env(csname):
+
+
+def find_specific_env(csname: str) -> str:
     if csname[0] == '{':
         truncated = csname[1:-1]
         if re.fullmatch(r'[a-zA-Z]+', truncated):
-            return r'(?<%s>\\begin ?%s|\\end ?%s|\\%s(?![a-zA-Z])|\\end%s(?![a-zA-Z]))' %(truncated, csname, csname, truncated)
+            # 5 placeholders: group-name, begin-csname, end-csname, cmd-name, end-cmd-name
+            return r'(?<%s>\\begin ?%s|\\end ?%s|\\%s(?![a-zA-Z])|\\end%s(?![a-zA-Z]))' % (truncated, csname, csname, truncated, truncated)
         elif re.fullmatch(r'[^a-zA-Z]', truncated):
-            return r'(?<%s>\\begin ?%s|\\end ?%s|\\%s(?![a-zA-Z]))' %(truncated, csname, csname)
+            # 4 placeholders: group-name, begin-csname, end-csname, cmd-name
+            return r'(?<%s>\\begin ?%s|\\end ?%s|\\%s(?![a-zA-Z]))' % (truncated, csname, csname, truncated)
     elif csname[0] == '\\':
         pass #technically, if this token expands to characters, it can be used as a macro name
     else:
@@ -236,32 +262,122 @@ key_value = r'(?!\s)%s(?:=%s)?(?=,|\})' %(key('key'), value('value'))
 #     \edef must expand immediately using the current dict state; do not reorder.
 find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env))
 
-## PREPROCESSING: whitespace removal, list of packages
-def preprocessing(tex):
-    tex = re.sub(r'\s+', ' ', re.sub(r'(?<!\\)%.*$', '\n', tex, flags=re.M)) #removes comments and change ALL whitespaces to ' ' (everything is now on 1 line)
-    preamble, document, _ = re.split(r'\\begin ?\{ ?document ?\}|\\end ?\{ ?document ?\}', tex, 2)
+## PREPROCESSING: verbatim protection, whitespace normalisation, package list
+
+# Environments whose content must not be whitespace-normalised.
+# They produce literal verbatim output; collapsing their whitespace corrupts the PDF.
+_VERBATIM_ENVS = re.compile(
+    r'\\begin\{(verbatim\*?|Verbatim\*?|lstlisting|minted|alltt|BVerbatim|LVerbatim)\}'
+    r'.*?'
+    r'\\end\{\1\}',
+    re.DOTALL,
+)
+# Placeholder: long unique prefix, no TeX-special characters.
+_VERBATIM_PLACEHOLDER = 'texphageVERBATIM{}ENDVERBATIM'
+
+
+def preprocessing(tex: str) -> tuple[str, str, list]:
+    """Normalise a raw LaTeX string for the demacro regex engine.
+
+    Steps performed in this exact order (order is significant):
+
+    1. PROTECT verbatim environments: replace with opaque placeholders so
+       steps 2–4 cannot touch their content.
+
+    2. Strip comments: remove % to end-of-line. Preserves \\% (escaped percent).
+
+    3. Preserve paragraph breaks: replace blank lines with \\par BEFORE
+       collapsing whitespace. In LaTeX, blank line = \\par, NOT a space.
+
+    4. Collapse whitespace: reduce all remaining whitespace to single spaces,
+       producing the flat string that all downstream regex patterns require.
+
+    5. RESTORE verbatim environments: re-insert the protected blocks.
+
+    6. Split on \\begin{document}/\\end{document}.
+
+    Postcondition (the regex engine invariant): the result is a flat string
+    with at most one space between tokens, verbatim content intact, and
+    paragraph breaks represented as \\par tokens.
+
+    Returns:
+        (preamble, document_body, packages_list)
+    """
+    # Step 1: Protect verbatim-like environments.
+    verbatim_store: dict[str, str] = {}
+
+    def _stash(m: re.Match) -> str:
+        key = _VERBATIM_PLACEHOLDER.format(len(verbatim_store))
+        verbatim_store[key] = m.group(0)
+        return key
+
+    tex = _VERBATIM_ENVS.sub(_stash, tex)
+
+    # Step 2: Strip LaTeX comments.
+    # (?<!\\) negative lookbehind: only % not preceded by backslash.
+    # [^\n]* consumes rest of line, preserving the newline for Step 3.
+    tex = re.sub(r'(?<!\\)%[^\n]*', '', tex)
+
+    # Step 3: Preserve paragraph breaks BEFORE collapsing whitespace.
+    # \n[ \t]*\n+ = one or more blank lines.
+    # MUST run before Step 4, or blank lines collapse to spaces.
+    tex = re.sub(r'\n[ \t]*\n+', r' \\par ', tex)
+
+    # Step 4: Collapse all remaining whitespace to exactly one space.
+    tex = re.sub(r'[ \t\n]+', ' ', tex)
+
+    # Step 5: Restore verbatim blocks.
+    for key, value in verbatim_store.items():
+        tex = tex.replace(key, value)
+
+    # Step 6: Split preamble from body.
+    parts = re.split(
+        r'\\begin ?\{ ?document ?\}|\\end ?\{ ?document ?\}', tex, maxsplit=2
+    )
+    if len(parts) < 3:
+        return '', tex, find_used_packages(tex)
+    preamble, document, _epilogue = parts
     return preamble, document, find_used_packages(preamble)
 
+__all__ = ["demacro", "preprocessing", "build_dictionary", "expand"]
+
 ###### DICTIONARY BUIDLING
-def content_replacement(local_content, default_dict ={}, boolean_list=[]):
-    def content(arg):
-        def arg_replacement(num):
+def content_replacement(
+    local_content: str, default_dict: dict = {}, boolean_list: list = []
+) -> Callable:
+    def content(arg: Any) -> str:
+        def arg_replacement(num: Any) -> str:
             if re.search(r'#', num[1]):
                 return num[1]
             else:
                 try:
                     input = arg.group('arg' + num[1][-1:])
-                    if not (num[1][-1:] in boolean_list):
+                    if num[1][-1:] not in boolean_list:
                         return input
                     else:
                         return r'\BooleanTrue'
                 except IndexError:
-                    print(num[1][-1:])
+                    logger.debug('content_replacement: missing group arg%s, using default', num[1][-1:])
                     return default_dict[num[1][-1:]]
         return re.sub(r'#(#*\d)', arg_replacement, local_content)
     return content
 
-def build_dictionary(tex):
+def build_dictionary(tex: str) -> tuple[dict, str]:
+    """Parse the preamble and build a macro expansion dictionary.
+
+    Iterates over find_all matches in order. For each definition found,
+    adds an entry to macro_dict: {csname: [match_pattern, replacement_fn]}.
+    Also builds find_macro — a regex alternation string used by expand() to
+    find uses of defined macros in the document body.
+
+    The elif chain order is semantically significant: \\edef must expand its
+    content immediately using the *current* macro_dict state (unlike \\def).
+    Do not reorder. See DANGER ZONE rules in CLAUDE_INSTRUCTIONS.md.
+
+    Returns:
+        (macro_dict, find_macro)  where find_macro is a compiled-ready string
+        (leading | stripped).
+    """
     macro_dict, find_macro = {}, ''
     # to_expand = r'(?<_pattern_>%s)' %pattern.pattern
     for macro in re.finditer(find_all, tex):
@@ -284,7 +400,7 @@ def build_dictionary(tex):
             csname = com_name(macro.group('edef_csname'))
             pattern = (r'\\%s(?![a-zA-Z])' %csname) + re.sub(r'#(\d)', lambda num : r'(?<%s>%s)' %('arg' + num[1], token('bracket_arg'+ num[1])), macro.group('edef_pattern'))
             #Content needs to be extended first:
-            expanded_content = expand(macro.group('edef_content'), macro_dict, find_macro)
+            expanded_content, _ = expand(macro.group('edef_content'), macro_dict, find_macro)
             content = content_replacement(expanded_content)
             macro_dict[csname] = [pattern, content]
             csname_finder = find_specific_com(csname)
@@ -412,7 +528,15 @@ def build_dictionary(tex):
     return macro_dict, find_macro[1:]
 
 ###### EXPANDING
-def expand(tex, macro_dict, find_macro, verbose = False):
+def expand(
+    tex: str,
+    macro_dict: dict,
+    find_macro: str,
+    log_level: int = logging.WARNING,
+) -> tuple[str, list]:
+    """Expand macro uses left-to-right. If expansion produces no change
+    (self-referential macro), log and advance past the match to prevent
+    an infinite loop."""
     macro = re.search(find_macro, tex)
     pos = 0
     problematic_macros = []
@@ -420,20 +544,40 @@ def expand(tex, macro_dict, find_macro, verbose = False):
         pos += macro.start()
         macro_def = macro_dict[macro.lastgroup]
         if re.search(macro_def[0], tex[pos:]):
-            tex = tex[:pos] + re.sub(macro_def[0], macro_def[1], tex[pos:], count = 1)
+            new_tex = tex[:pos] + re.sub(macro_def[0], macro_def[1], tex[pos:], count=1)
+            if new_tex == tex:
+                logging.log(log_level,
+                    'Macro %s at pos %i is self-referential — skipping',
+                    macro.lastgroup, pos)
+                problematic_macros.append((macro.lastgroup, pos, 'no_progress'))
+                pos += 1
+            else:
+                tex = new_tex
         else:
-            if verbose:
-                print('Macro %s found at position %i not replacable' % (macro.lastgroup, pos))
-            problematic_macros.append((macro.lastgroup, pos))
+            logging.log(log_level,
+                'Macro %s at pos %i: definition pattern did not match context',
+                macro.lastgroup, pos)
+            problematic_macros.append((macro.lastgroup, pos, 'pattern_mismatch'))
             pos += 1
         macro = re.search(find_macro, tex[pos:])
     return tex, problematic_macros
 
 ###### MAIN
-def demacro(tex, verbose = False):
+def demacro(tex: str) -> tuple[str, list, list]:
+    """Parse a flat LaTeX string, expand preamble-defined macros in the body.
+
+    Args:
+        tex: A flat (preprocessed or raw) LaTeX string, typically produced
+             by unfold(). Should contain \\begin{document}...\\end{document}.
+
+    Returns:
+        (expanded_tex, packages_list, problematic_macros) where:
+        - expanded_tex: the document body with all resolvable macros expanded.
+        - packages_list: list of package names found in the preamble.
+        - problematic_macros: list of (csname, pos, reason) tuples for macros
+          that could not be expanded (pattern_mismatch or no_progress).
+    """
     preamble, document, list_packages = preprocessing(tex)
     macro_dict, find_macro = build_dictionary(preamble)
-    if verbose:
-        print(find_macro)
-    expanded_tex, problematic_macros = expand(document, macro_dict, find_macro, verbose)
+    expanded_tex, problematic_macros = expand(document, macro_dict, find_macro)
     return expanded_tex, list_packages, problematic_macros

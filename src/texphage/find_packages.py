@@ -14,8 +14,7 @@ import regex as re
 from filelock import FileLock
 
 from texphage._regex import (
-    embed_brackets, embed_braces, token, not_tokenizer_char,
-    num_args, find_com, find_env, xparse,
+    embed_braces,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,12 +73,11 @@ atexit.register(save_cache)
 # Core functions
 # ---------------------------------------------------------------------------
 
-def get_path(file: str, tracker: bool = False) -> str:
+def get_path(file: str) -> str:
     if file in texlive_path:
         return texlive_path[file]
     else:
-        if tracker:
-            print("get_path: Getting location for " + file)
+        logger.debug("get_path: Getting location for %s", file)
         if re.search(':', file):
             filename = re.sub(':', '', file) + '.code.tex'
         else:
@@ -94,24 +92,23 @@ def get_path(file: str, tracker: bool = False) -> str:
         return path
 
 
-def get_dependencies(file: str, dependencies: list | None = None, tracker: bool = False) -> list:
+def get_dependencies(file: str, dependencies: list | None = None) -> list:
     if dependencies is None:
         dependencies = []
     if file in texlive_dependencies:
         return texlive_dependencies[file]
     else:
-        if tracker:
-            print("get_dependencies: Getting dependencies for " + file)
+        logger.debug("get_dependencies: Getting dependencies for %s", file)
         root = (dependencies == [])
         dependencies.append(file)
         try:
-            path = get_path(file, tracker=tracker)
-            code = open(path, 'r').read()
+            path = get_path(file)
+            code = open(path).read()
         except FileNotFoundError:
-            print("FileNotFoundError: Couldn't find the package or library " + file + " at " + path)
+            logger.error("Couldn't find the package or library %s at %s", file, path)
             return [file]
         except UnicodeDecodeError:
-            print("UnicodeDecodeError: Couldn't decode the package or library " + file + " at " + path)
+            logger.error("Couldn't decode the package or library %s at %s", file, path)
             return [file]
         else:
             for match in find_pkg_lib.finditer(code):
@@ -128,27 +125,28 @@ def get_dependencies(file: str, dependencies: list | None = None, tracker: bool 
             return dependencies
 
 
-def find_used_packages(tex: str, tracker: bool = False) -> list:
+def find_used_packages(tex: str) -> list:
+    """Return all packages (and transitive dependencies) used in a LaTeX string."""
     list_packages = []
     for match in find_pkg_lib.finditer(tex):
         for package in find_file.finditer(match.group('packages') or ''):
             if package[0] not in list_packages:
                 list_packages += [
-                    i for i in get_dependencies(package[0], tracker=tracker)
+                    i for i in get_dependencies(package[0])
                     if i not in list_packages
                 ]
         for library in find_file.finditer(match.group('libraries') or ''):
             if library[0] not in list_packages:
                 list_packages += [
                     i for i in get_dependencies(
-                        match.group('type') + 'library:' + library[0], tracker=tracker
+                        match.group('type') + 'library:' + library[0]
                     )
                     if i not in list_packages
                 ]
     return list_packages
 
 
-def find_command(csname: str, list_packages: list[str], tracker: bool = False) -> str:
+def find_command(csname: str, list_packages: list[str]) -> str:
     """Find which package in list_packages defines the command \\csname.
 
     Searches packages in reverse order (last loaded = highest priority in LaTeX).
@@ -157,7 +155,6 @@ def find_command(csname: str, list_packages: list[str], tracker: bool = False) -
     Args:
         csname: Command name without backslash, e.g. "tikzcd".
         list_packages: List of package names to search, in load order.
-        tracker: If True, log each package being searched at DEBUG level.
 
     Returns:
         The name of the package that defines \\csname, or '' if not found.
@@ -194,18 +191,17 @@ def find_command(csname: str, list_packages: list[str], tracker: bool = False) -
         ''' % pattern_csname
     pattern = re.compile(re.sub(r'\s+', '', pattern_env + '|' + pattern_cmd))
     for package in reversed(list_packages):
-        if tracker:
-            print('find_command: Searching for the command %s in %s' % (csname, package))
+        logger.debug('find_command: Searching for \\%s in %s', csname, package)
         try:
-            path = get_path(package, tracker=tracker)
-            code = open(path, 'r').read()
+            path = get_path(package)
+            code = open(path).read()
             if pattern.search(code):
                 return package
         except FileNotFoundError:
-            print("FileNotFoundError: Couldn't find the package " + package + " at " + path)
+            logger.error("Couldn't find the package %s at %s", package, path)
         except UnicodeDecodeError:
-            print("UnicodeDecodeError: Couldn't decode package " + package + " at " + path)
-    print(r"Couldn't find command %s in the provided list of packages" % csname)
+            logger.error("Couldn't decode package %s at %s", package, path)
+    logger.warning("Couldn't find command \\%s in the provided list of packages", csname)
     return ''
 
 
@@ -218,18 +214,19 @@ __all__ = [
 
 
 def main(args: argparse.Namespace) -> None:
-    tex = open(args.texfile, 'r').read()
+    logging.basicConfig(level=logging.DEBUG)
+    tex = open(args.texfile).read()
     print('\nKnown Dependencies:')
     print(texlive_dependencies)
     print('\nKnown Paths:')
     print(texlive_path)
     if args.mode == 'tex':
-        print(find_used_packages(tex, tracker=True))
+        print(find_used_packages(tex))
     elif args.mode == 'cs':
         if args.cs:
-            list_packages = find_used_packages(tex, tracker=True)
+            list_packages = find_used_packages(tex)
             print(list_packages)
-            print(find_command(args.cs, list_packages, tracker=True))
+            print(find_command(args.cs, list_packages))
         else:
             print("The argument '-c STRING' (where STRING is a latex command to find) is necessary for the 'cs' mode")
     save_cache()
