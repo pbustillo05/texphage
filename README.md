@@ -1,12 +1,18 @@
 # texphage
 
-Unfold multi-file LaTeX projects into a single flat string and expand
-user-defined macros — without running TeX.
+Unfold multi-file LaTeX projects into a single 5-lines document of the form:
+```LaTeX
+\documentclass[...]{...}
+% <minimal list of \usepackage[...]{...} commands>
+\begin{document}
+% <1-line demacro'ed body>
+\end{document}
+```
+without changing the PDF output at all.
 
 **Primary use case:** preparing arXiv source tarballs for downstream NLP
 pipelines (embedding, search, extraction) where you need clean text with
-custom macros resolved but do not want to install a full TeX distribution in
-your processing environment.
+custom macros resolved so that snippet can be compiled and understood with a minimal preamble.
 
 ---
 
@@ -25,6 +31,8 @@ brew install --cask mactex && brew install poppler
 `kpsewhich` (from TeX Live) is used by `find_packages` for portable package
 path resolution. `latexmk`, `pdftoppm`, and `pdfinfo` (from poppler) are
 required only for the fidelity testing agent (`scripts/test_fidelity.py`).
+`texdef` (from `texlive-extra-utils` or MacTeX) is used by agents for
+debugging macro definitions.
 
 ### Python package
 
@@ -41,14 +49,29 @@ pip install -e ".[dev,agents]"
 ## Quick start
 
 ```python
+import re
 from texphage.unfold import unfold
 from texphage.demacro import demacro
 
 # Flatten a multi-file project into one string
 tex = unfold('/path/to/arxiv/source/')
 
-# Expand user-defined macros
-expanded, packages, problems = demacro(tex)
+# Expand user-defined macros; get back the body only
+expanded_body, packages, problems = demacro(tex)
+
+# Reconstruct a minimal, compilable document:
+#   \documentclass + \usepackage calls (no custom macros) + expanded body
+raw_preamble = tex[:tex.find(r'\begin{document}')]
+docclass = re.search(r'\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}', raw_preamble).group(0)
+pkg_calls = re.findall(
+    r'\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]+\}'
+    r'|\\use(?:tikz|pgf)library\s*\{[^}]+\}',
+    raw_preamble,
+)
+output_tex = (
+    docclass + '\n' + '\n'.join(pkg_calls)
+    + '\n\\begin{document}\n' + expanded_body + '\n\\end{document}\n'
+)
 ```
 
 `packages` is a list of `\usepackage` names found in the preamble.

@@ -200,8 +200,7 @@ Temporary Items
 # Claude project metadata
 .claude/
 
-# NOTE: CLAUDE_INSTRUCTIONS.md and AGENTS.md are intentionally committed —
-# they are project documentation, not tooling state.
+# NOTE: CLAUDE.md and AGENTS.md are intentionally committed.
 
 # =============================================================================
 # JETBRAINS (PyCharm, etc.)
@@ -237,6 +236,27 @@ out/
 *.key
 
 # Windows
+
 Thumbs.db
+
 ehthumbs.db
+
 Desktop.ini
+
+
+
+# =============================================================================
+
+# GEMINI / GOOGLE
+
+# =============================================================================
+
+
+
+# Gemini project metadata
+
+.gemini/
+
+
+
+# NOTE: GEMINI.md is intentionally committed.

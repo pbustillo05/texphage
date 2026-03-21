@@ -68,13 +68,12 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **description**: `demacro()` returns the expanded document body only (the content between
   `\begin{document}...\end{document}`). The testing agent wrote this body directly to
   `pipeline_output.tex` without a `\documentclass` or preamble, so every `latexmk` compile
-  of the pipeline output failed with "LaTeX Error: Missing \begin{document}."
+  of the pipeline output failed with "LaTeX Error: Missing \begin{document}." This is a misunderstanding of how to use demacro(). The point is that the whole latex code can be replaced by changing the preamble to simply calling all `\usepackage{...}` found by `find_packages.py` (without ANY custom macros) and by replacing the body by the demacro'ed body. And our goal is that this should return the exact same pdf output. See the first few lines of "README.md" for a precise formulation of the goal of this repo.
 - **relevant_code_location**: `scripts/test_fidelity.py` — `_run_pipeline()`, preamble reconstruction;
   `src/texphage/demacro.py` — `demacro()` return contract
 - **relevant_latex_docs**: N/A (infrastructure bug)
 - **reproduction**: Any paper — `pipeline_output.tex` from earlier test runs lacks `\documentclass`
-- **fix**: Call `preprocessing(tex)` to extract the preamble, then write
-  `preamble + \begin{document} + expanded_body + \end{document}` to `pipeline_output.tex`
+- **fix**: Use `find_packages.py` to replace the preamble by the appropriate concatenation of `\usepackage{...}` commands. It might be important to preserve order, and it's certainly important to preserve options. One might need to experiment further to find the appropriate modifications to make.
 - **first_seen**: 2026-03-21
 - **fixed**: 2026-03-21
 - **status**: FIXED

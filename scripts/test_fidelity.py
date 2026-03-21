@@ -35,6 +35,7 @@ from pathlib import Path
 
 import numpy as np
 import pdfplumber
+import regex as _re
 from pdf2image import convert_from_path
 from skimage.metrics import structural_similarity
 from tqdm import tqdm
@@ -184,28 +185,71 @@ def _page_count(pdf: Path) -> int | None:
 # Step 4 — Run the pipeline
 # ---------------------------------------------------------------------------
 
+# Matches \documentclass[options]{class} — used by _build_minimal_preamble.
+_DOCCLASS_RE = _re.compile(r'\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}')
+
+# Matches \usepackage[options]{pkgs}, \RequirePackage[options]{pkgs},
+# \usetikzlibrary{libs}, \usepgflibrary{libs} — all package-loading commands.
+_USEPACKAGE_RE = _re.compile(
+    r'\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]+\}'
+    r'|\\use(?:tikz|pgf)library\s*\{[^}]+\}'
+)
+
+
+def _build_minimal_preamble(raw_tex: str) -> str:
+    """Return a minimal LaTeX preamble from a raw TeX string.
+
+    Extracts \\documentclass and all \\usepackage / \\RequirePackage /
+    \\usetikzlibrary calls (preserving options and order) from the raw
+    preamble.  The result contains no custom macro definitions — only the
+    package-loading commands needed to compile the document.
+
+    This is the correct way to reconstruct a compilable document from
+    demacro() output:
+
+        minimal_preamble = _build_minimal_preamble(tex)
+        expanded_body, _, _ = demacro(tex)
+        pipeline_tex = (
+            minimal_preamble
+            + '\\n\\\\begin{document}\\n'
+            + expanded_body
+            + '\\n\\\\end{document}\\n'
+        )
+
+    The resulting document has the same PDF output as the original but
+    has no custom macros in its preamble — the goal of texphage.
+    """
+    # Work on the raw preamble only (text before \begin{document}).
+    begin_doc = raw_tex.find(r'\begin{document}')
+    raw_preamble = raw_tex[:begin_doc] if begin_doc != -1 else raw_tex
+
+    docclass_m = _DOCCLASS_RE.search(raw_preamble)
+    docclass = docclass_m.group(0) if docclass_m else r'\documentclass{article}'
+
+    pkg_calls = _USEPACKAGE_RE.findall(raw_preamble)
+
+    return docclass + '\n' + '\n'.join(pkg_calls)
+
+
 def _run_pipeline(raw_data_dir: Path, run_dir: Path) -> dict:
     """Unfold and demacro. Saves pipeline_output.tex and demacro_report.json."""
     import logging as _logging
 
-    from texphage.demacro import demacro, preprocessing
+    from texphage.demacro import demacro
     from texphage.unfold import unfold
 
     log_path = run_dir / 'pipeline.log'
     _logging.basicConfig(level=_logging.DEBUG, filename=str(log_path), force=True)
 
     tex = unfold(raw_data_dir)
-
-    # Extract the preamble so we can reconstruct a compilable document.
-    # demacro() only returns the expanded body; we need preamble+body to compile.
-    preamble, _, _ = preprocessing(tex)
     expanded_tex, packages, problems = demacro(tex)
 
-    # Write a complete, compilable .tex file: original preamble + expanded body.
-    # The preamble is kept unchanged so \documentclass, \usepackage, etc. are
-    # still present. The body has user-defined macros expanded.
+    # Goal (see README.md): replace the full preamble with just \documentclass
+    # + \usepackage calls, and replace the body with the demacro'ed (macro-free)
+    # body.  The resulting PDF must be identical to the baseline.
+    minimal_preamble = _build_minimal_preamble(tex)
     pipeline_tex = (
-        preamble + '\n\\begin{document}\n' + expanded_tex + '\n\\end{document}\n'
+        minimal_preamble + '\n\\begin{document}\n' + expanded_tex + '\n\\end{document}\n'
     )
     (run_dir / 'pipeline_output.tex').write_text(pipeline_tex)
     report = {
