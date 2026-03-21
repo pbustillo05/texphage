@@ -113,7 +113,9 @@ def _download_arxiv(arxiv_id: str, dest_dir: Path) -> Path:
 
 def _sample_papers(n: int, seed: int) -> list[dict]:
     """Return n paper metadata dicts, downloading from arXiv."""
-    from scripts.extractor import get_all_arxiv_ids  # type: ignore[import]
+    import sys
+    sys.path.insert(0, str(REPO_ROOT / 'scripts'))
+    from extractor import get_all_arxiv_ids  # type: ignore[import]
 
     rng = random.Random(seed)
     cats = (_DEFAULT_CATEGORIES * ((n // len(_DEFAULT_CATEGORIES)) + 1))[:n]

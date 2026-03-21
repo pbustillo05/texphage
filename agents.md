@@ -209,14 +209,63 @@ Diff lines > 50 → HIGH; 10–50 → MEDIUM; < 10 → LOW.
 
 ### Step 7 — Diagnose bugs
 
+You have two primary debugging avenues. Use both freely — they are faster
+and more reliable than guessing.
+
+---
+
+#### Avenue A — LaTeX playground (preferred first step)
+
+When you are unsure how a LaTeX construct behaves, **compile it and see**.
+This is often faster than reading docs and eliminates ambiguity.
+
+```python
+from scripts.latex_playground import compile_snippet
+
+result = compile_snippet(
+    preamble=r'\newcommand{\greet}[1][World]{Hello, #1!}',
+    body=r'\greet   \greet[Alice]',
+)
+print(result.pdf_text)    # what LaTeX actually produces
+print(result.error_lines) # any errors/warnings
+```
+
+Use the playground to:
+- Confirm exact TeX behaviour before writing a regex (does `\def\foo#1and#2`
+  grab the whole word "Alice" or just one character?)
+- Reproduce a bug with a minimal snippet before adding it to BUGS.md
+- Verify a fix works end-to-end before running the full test suite
+- Test edge cases (starred commands, nested optional args, etc.)
+
+Run directly: `python scripts/latex_playground.py --body '\textbf{test}'`
+Keep files for inspection: add `--keep /tmp/playground_test`
+
+---
+
+#### Avenue B — Read the docs and source
+
+Verified links are in `memory/latex_docs.md` (always check there first).
+Preferred sources in order:
+1. **texdoc**: `texdoc <pkgname>` locally, or https://texdoc.org/pkg/<pkgname>
+2. **CTAN package page**: https://ctan.org/pkg/<pkgname>
+3. **Package .sty source**: https://mirror.ctan.org/macros/latex/contrib/<pkgname>/<pkgname>.sty
+4. **TeXbook / texbytopic** for TeX primitives: https://texdoc.org/serve/texbytopic/0
+5. **LaTeX2e source**: https://ctan.org/pkg/source2e (for `\newcommand`, `\newenvironment`, etc.)
+
+When reading docs, look specifically for:
+- The exact argument syntax (positional, optional, default values)
+- What the command expands to (is it one call or multiple?)
+- Whether starred variants exist and how they differ
+- What happens when an optional arg is absent
+
+---
+
 **If you encounter a LaTeX error you do not understand:**
-Do NOT guess at the cause. Instead:
 1. Quote the exact error from `output_compile.log`.
-2. Search for the relevant construct in `CLAUDE_INSTRUCTIONS.md` section 1.4.
-3. If not found there, ask the user: `"I see error X which involves the
-   construct Y. Could you point me to the relevant CTAN documentation?"`
-4. Add the bug to BUGS.md as MEDIUM with the reproduction snippet, and wait
-   for guidance before attempting a fix.
+2. **Use Avenue A**: reproduce in the playground with a minimal snippet.
+3. **Use Avenue B**: look up the construct in `memory/latex_docs.md`.
+4. If still unclear, add the bug to BUGS.md as MEDIUM with the reproduction
+   snippet, and note which specific behaviour is unclear.
 
 **For `undefined_control_sequence \foo`:**
 1. Search `demacro_report.json` for `foo` in `problematic_macros`.
@@ -225,11 +274,14 @@ Do NOT guess at the cause. Instead:
 2. Find the first occurrence of `\foo` in `pipeline_output.tex` and examine
    the surrounding 200 characters for context.
 3. Find the original definition of `\foo` in the raw source.
+4. **Use Avenue A**: paste the definition into the playground and verify the
+   expected expansion before writing a fix.
 
 **For visual diff pages (SSIM < 0.95):**
 Open the side-by-side PNG at `visual_diff/page_N_diff.png` and describe what
 you see — which element changed, whether it is a content change or a layout
-shift, and whether it looks like a macro expansion error.
+shift, and whether it looks like a macro expansion error. Then use Avenue A
+to reproduce the problematic macro in isolation.
 
 ### Step 8 — Write to `BUGS.md`
 
