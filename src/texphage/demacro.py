@@ -342,23 +342,44 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
 __all__ = ["demacro", "preprocessing", "build_dictionary", "expand"]
 
 ###### DICTIONARY BUIDLING
+def _strip_delimiters(s: str | None) -> str:
+    """Strip a single layer of outer {} or [] delimiters from a captured token.
+
+    Returns '' for None (unmatched optional group).
+    """
+    if s is None:
+        return ''
+    if len(s) >= 2 and ((s[0] == '{' and s[-1] == '}') or (s[0] == '[' and s[-1] == ']')):
+        return s[1:-1]
+    return s
+
+
 def content_replacement(
     local_content: str, default_dict: dict = {}, boolean_list: list = []
 ) -> Callable:
+    # Strip outer {} from content template (captured by token() with delimiters).
+    local_content = _strip_delimiters(local_content)
+    # Strip outer [] from default values (captured by embed_braces with delimiters).
+    stripped_defaults = {k: _strip_delimiters(v) for k, v in default_dict.items()}
+
     def content(arg: Any) -> str:
         def arg_replacement(num: Any) -> str:
             if re.search(r'#', num[1]):
                 return num[1]
-            else:
-                try:
-                    input = arg.group('arg' + num[1][-1:])
-                    if num[1][-1:] not in boolean_list:
-                        return input
-                    else:
-                        return r'\BooleanTrue'
-                except IndexError:
-                    logger.debug('content_replacement: missing group arg%s, using default', num[1][-1:])
-                    return default_dict[num[1][-1:]]
+            key = num[1][-1:]
+            try:
+                raw = arg.group('arg' + key)
+            except IndexError:
+                logger.debug('content_replacement: missing group arg%s, using default', key)
+                return stripped_defaults.get(key, '')
+            if raw is None:
+                # Optional group absent — return BooleanFalse for boolean args, else default.
+                if key in boolean_list:
+                    return r'\BooleanFalse'
+                return stripped_defaults.get(key, '')
+            if key in boolean_list:
+                return r'\BooleanTrue'
+            return _strip_delimiters(raw)
         return re.sub(r'#(#*\d)', arg_replacement, local_content)
     return content
 
@@ -436,7 +457,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
                 content = content_replacement(macro.group('new_com_content'), default_dict)
             else:   #else used here because otherwise the re.sub seemed to fail.. can it be removed?
                 # Lambda used here because (for some reason) it makes macro.group('new_com_content') be seen as raw
-                content = lambda arg, local_content = macro.group('new_com_content') : local_content
+                content = lambda arg, local_content = _strip_delimiters(macro.group('new_com_content')) : local_content
             macro_dict[csname] = [pattern, content]
             csname_finder = find_specific_com(csname)
             find_macro += '|' + csname_finder
@@ -467,7 +488,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
                 content = content_replacement(macro.group('new_doc_com_content'), default_dict)
             else:   #else used here because otherwise the re.sub seemed to fail.. can it be removed?
                 # Lambda used here because (for some reason) it makes macro.group('new_doc_com_content') be seen as raw
-                content = lambda arg, local_content = macro.group('new_doc_com_content') : local_content
+                content = lambda arg, local_content = _strip_delimiters(macro.group('new_doc_com_content')) : local_content
             macro_dict[csname] = [pattern, content]
             csname_finder = find_specific_com(csname)
             find_macro += '|' + csname_finder
@@ -476,6 +497,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
         elif macro.group('new_env'):
             csname_group, csname_latex = env_name(macro.group('new_env_csname'))
             pattern = r'\\begin ?\{ ?%s ?\}' %csname_latex
+            default_dict = {}
             if macro.group('new_env_num_args'):
                 num_args = int(macro.group('new_env_num_args'))
                 i = 0
@@ -537,6 +559,8 @@ def expand(
     """Expand macro uses left-to-right. If expansion produces no change
     (self-referential macro), log and advance past the match to prevent
     an infinite loop."""
+    if not find_macro:
+        return tex, []
     macro = re.search(find_macro, tex)
     pos = 0
     problematic_macros = []

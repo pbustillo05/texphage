@@ -83,6 +83,10 @@ def _make_file_replacement(
     inline_local_packages: bool,
 ):
     """Return a re.sub replacement callable for resolving file inclusions."""
+    def _prefix(match: re.Match, group: str) -> str:
+        """Text on the same line before the directive (e.g. 'Some text ' in 'Some text \\input{f}')."""
+        return match.group(0)[:match.start(group) - match.start()]
+
     def replacement(match: re.Match) -> str:
         if match.group('input'):
             path = match.group('input_path')
@@ -97,8 +101,8 @@ def _make_file_replacement(
             except FileNotFoundError:
                 logger.warning("\\input not found: %s", full)
                 return match.group(0)
-            return unfold(os.path.dirname(full), main=content,
-                          _visited=visited | {full})
+            return _prefix(match, 'input') + unfold(os.path.dirname(full), main=content,
+                                                     _visited=visited | {full})
 
         elif match.group('include'):
             path = match.group('include_path') + '.tex'
@@ -114,7 +118,7 @@ def _make_file_replacement(
             body = unfold(os.path.dirname(full), main=content,
                           _visited=visited | {full})
             # \include = \input + \clearpage wrapper (creates chapter page breaks)
-            return '\n\\clearpage\n' + body + '\n\\clearpage\n'
+            return _prefix(match, 'include') + '\n\\clearpage\n' + body + '\n\\clearpage\n'
 
         elif match.group('import_') or match.group('subimport'):
             # \import{dir}{file}: dir absolute/root-relative; changes search root.
@@ -122,8 +126,10 @@ def _make_file_replacement(
             # Docs: https://ctan.org/pkg/import
             if match.group('import_'):
                 imp_dir, imp_file = match.group('import_dir'), match.group('import_file')
+                grp = 'import_'
             else:
                 imp_dir, imp_file = match.group('subimport_dir'), match.group('subimport_file')
+                grp = 'subimport'
             if '.' not in os.path.basename(imp_file):
                 imp_file += '.tex'
             full_dir = os.path.realpath(os.path.join(directory, imp_dir))
@@ -136,7 +142,7 @@ def _make_file_replacement(
             except FileNotFoundError:
                 logger.warning("\\import not found: %s", full)
                 return match.group(0)
-            return unfold(full_dir, main=content, _visited=visited | {full})
+            return _prefix(match, grp) + unfold(full_dir, main=content, _visited=visited | {full})
 
         elif match.group('subfile'):
             # \subfile: sub-document has its own \documentclass preamble.
@@ -160,8 +166,8 @@ def _make_file_replacement(
             )
             if body_m:
                 content = body_m.group(1)
-            return unfold(os.path.dirname(full), main=content,
-                          _visited=visited | {full})
+            return _prefix(match, 'subfile') + unfold(os.path.dirname(full), main=content,
+                                                      _visited=visited | {full})
 
         elif match.group('usepkg') and inline_local_packages:
             result = ''
@@ -208,4 +214,4 @@ def unfold(
     if _visited is None:
         _visited = set()
     repl = _make_file_replacement(directory, _visited, inline_local_packages)
-    return re.sub(_FIND_INPUT, repl, main, flags=re.MULTILINE)
+    return re.sub(_FIND_INPUT, repl, main)
