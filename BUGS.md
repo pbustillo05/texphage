@@ -118,3 +118,27 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **first_seen**: 2026-03-21
 - **fixed**: 2026-03-21
 - **status**: FIXED
+
+---
+
+## BUG-6: `\begin{comment}...\end{comment}` environments not protected from whitespace collapsing
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `preprocessing()` in `src/texphage/demacro.py` — `_VERBATIM_ENVS` list
+- **seen_in**: 2602.05689 (uses `\usepackage{comment}`)
+- **description**: The `comment` package defines a `comment` environment whose content is
+  excluded from output. Its implementation scans verbatim line-by-line looking for
+  `\end{comment}` at the beginning of a line. When `preprocessing()` collapses all whitespace
+  (step 4), the content of `\begin{comment}...\end{comment}` is joined into a single line.
+  The comment package's scanner (`\next`) then reaches EOF without finding `\end{comment}`,
+  causing: `! File ended while scanning use of \next.`
+  The fix is to add `comment` (and similar environments: `IEEEproof`, user-defined via `\excludecomment`)
+  to `_VERBATIM_ENVS` so their content is stashed and restored intact.
+- **relevant_code_location**: `src/texphage/demacro.py` — `_VERBATIM_ENVS` pattern at line ~281
+- **relevant_latex_docs**: https://ctan.org/pkg/comment
+- **reproduction**: `\usepackage{comment}` + `\begin{comment}\nsome text\n\end{comment}` in
+  body → after whitespace collapse → `\begin{comment} some text \end{comment}` on one line
+  → `latexmk` error: `! File ended while scanning use of \next.`
+- **first_seen**: 2026-03-21
+- **last_seen**: 2026-03-21
+- **status**: OPEN
