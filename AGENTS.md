@@ -9,9 +9,17 @@ conversationally** — the user triggers you by saying:
 - `"Fix next bug"` or `"Fix BUG-N"` → act as Coding Agent
 - `"Run quarterly audit"` → act as Quarterly Audit Agent
 
-**All rules below are mandatory. Never deviate. The META-RULE in
-`CLAUDE_INSTRUCTIONS.md` applies here too — always write a failing test before
-touching code, and always comment regex before changing it.**
+**All rules below are mandatory. Never deviate.**
+
+Every time you improve, fix a bug, or run an agent:
+1. Always write a failing test before touching any code.
+2. Always add the `MATCHES/CAPTURES/LIMITATIONS` comment block before touching
+   any regex pattern in `demacro.py` or `_regex.py` (format in the
+   DANGER ZONE section below).
+3. If you encounter a LaTeX construct you do not recognise, do NOT guess.
+   Add it to `BUGS.md` as MEDIUM severity with a reproduction snippet, and look
+   it up in `memory/latex_docs.md` or ask the user for the CTAN link.
+4. Never commit `tests/runs/`, tarballs, or compiled PDFs.
 
 ---
 
@@ -392,7 +400,7 @@ Read `relevant_code_location` and `description`. Rules:
 
 - **Surgical changes only.** Do not refactor unrelated code.
 - **Before touching any regex pattern:** add the `MATCHES/CAPTURES/LIMITATIONS`
-  comment block (Part 1.3 of `CLAUDE_INSTRUCTIONS.md`). Commit this separately.
+  comment block (format in the DANGER ZONE section below). Commit this separately.
 - **Before touching `build_dictionary()`:** re-read the DANGER ZONE rules.
   Adding a new `elif` branch must go in the correct position in the chain
   (order is semantically significant — `\edef` must come before `\def`).
@@ -486,6 +494,46 @@ For any unrecognised pattern found in > 3 recent packages:
 **Never add a fix in the same session as the audit.** Add the BUGS.md entry,
 create the fixture, commit, and tell the user what was found. The fix happens
 in a separate Coding Agent session after the user has reviewed the findings.
+
+---
+
+## DANGER ZONE: Rules for Touching the Regex
+
+**Do not touch these things without an explicit instruction and a prior failing test:**
+
+1. **Any lambda or constant in `_regex.py`.** They are interdependent; changing
+   one breaks others in non-obvious ways that only appear on edge-case inputs.
+
+2. **Named capture groups.** `content_replacement()` reconstructs macro expansions
+   by calling `arg.group('arg1')`, `arg.group('arg2')`, etc. Renaming any
+   group silently breaks argument substitution for every macro that uses it.
+
+3. **The `elif` chain order in `build_dictionary()`.** `\edef` must expand its
+   content immediately using the *current* `macro_dict` state, unlike `\def`.
+   The order encodes this semantic. Reordering it produces wrong expansions.
+
+**Mandatory comment block — before modifying any pattern, add this above it:**
+
+```python
+# MATCHES: \newcommand{\cmdname}[N][default]{body}
+# CAPTURES:
+#   new_com_csname   → the command name, e.g. "mycommand"
+#   new_com_num_args → the optional [N] argument count, e.g. "2"
+#   new_com_default1 → first optional default value
+#   new_com_content  → the replacement body
+# LIMITATIONS:
+#   - Does not handle \newcommand* (starred form; irrelevant for expansion)
+#   - Does not handle @ in command names outside \makeatletter blocks
+```
+
+Commit this comment block in a **separate commit** before making any functional
+change. This is what allows future sessions to understand intent without
+re-deriving it from the regex syntax.
+
+**The regex engine invariant:** All patterns assume preprocessing has produced
+a flat single-line string with at most one ASCII space between tokens. The
+pattern fragment ` ?(?<arg1>...)` is correct as written — do not add `\s+`
+or multiline flags unless you understand why this invariant exists.
 
 ---
 
