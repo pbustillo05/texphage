@@ -147,11 +147,13 @@ def _compile_latex(src_dir: Path, output_pdf: Path, log_path: Path) -> dict:
             ['latexmk', '-pdf', '-interaction=nonstopmode', '-halt-on-error'],
             cwd=str(src_dir),
             capture_output=True,
-            text=True,
             timeout=120,   # MANDATORY: TeX is Turing-complete and can loop forever
         )
+        # TeX logs can contain latin-1 characters; decode with replacement.
+        stdout = result.stdout.decode('utf-8', errors='replace')
+        stderr = result.stderr.decode('utf-8', errors='replace')
         duration = time.time() - t0
-        log_path.write_text(result.stdout + result.stderr)
+        log_path.write_text(stdout + stderr)
         # Find the generated PDF (latexmk puts it in src_dir).
         pdfs = list(src_dir.glob('*.pdf'))
         if pdfs:
@@ -186,15 +188,25 @@ def _run_pipeline(raw_data_dir: Path, run_dir: Path) -> dict:
     """Unfold and demacro. Saves pipeline_output.tex and demacro_report.json."""
     import logging as _logging
     from texphage.unfold import unfold
-    from texphage.demacro import demacro
+    from texphage.demacro import demacro, preprocessing
 
     log_path = run_dir / 'pipeline.log'
     _logging.basicConfig(level=_logging.DEBUG, filename=str(log_path), force=True)
 
     tex = unfold(raw_data_dir)
+
+    # Extract the preamble so we can reconstruct a compilable document.
+    # demacro() only returns the expanded body; we need preamble+body to compile.
+    preamble, _, _ = preprocessing(tex)
     expanded_tex, packages, problems = demacro(tex)
 
-    (run_dir / 'pipeline_output.tex').write_text(expanded_tex)
+    # Write a complete, compilable .tex file: original preamble + expanded body.
+    # The preamble is kept unchanged so \documentclass, \usepackage, etc. are
+    # still present. The body has user-defined macros expanded.
+    pipeline_tex = (
+        preamble + '\n\\begin{document}\n' + expanded_tex + '\n\\end{document}\n'
+    )
+    (run_dir / 'pipeline_output.tex').write_text(pipeline_tex)
     report = {
         'packages': packages,
         'problematic_macros': [
@@ -384,15 +396,22 @@ def _compare(paper_dir: Path, baseline_pdf: Path, output_pdf: Path,
 # Step 9 — Cleanup
 # ---------------------------------------------------------------------------
 
+_KEEP_LOGS = frozenset([
+    'baseline_compile.log', 'output_compile.log', 'pipeline.log',
+])
+
+
 def cleanup_run(id_run_dir: Path) -> None:
     """Delete intermediate build artifacts; keep key outputs."""
     shutil.rmtree(id_run_dir / 'raw_data', ignore_errors=True)
     for ext in ['aux', 'log', 'fls', 'fdb_latexmk', 'out', 'toc',
                 'bbl', 'blg', 'synctex.gz']:
         for f in id_run_dir.glob(f'**/*.{ext}'):
-            f.unlink(missing_ok=True)
+            if f.name not in _KEEP_LOGS:   # preserve our named log files
+                f.unlink(missing_ok=True)
     # Keep: baseline.pdf, pipeline_output.tex, pipeline_output.pdf,
-    #        demacro_report.json, pipeline.log, comparison.json, visual_diff/
+    #        demacro_report.json, pipeline.log, baseline_compile.log,
+    #        output_compile.log, comparison.json, visual_diff/
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +480,7 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
             try:
                 _run_pipeline(raw_data, paper_dir)
             except Exception as e:
-                logger.error("%s: pipeline failed: %s", arxiv_id, e)
+                logger.error("%s: pipeline failed: %s", arxiv_id, e, exc_info=True)
                 results_summary.append({'arxiv_id': arxiv_id, 'status': 'pipeline_failed', 'error': str(e)})
                 continue
 

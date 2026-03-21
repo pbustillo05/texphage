@@ -46,6 +46,14 @@ def test_let_alias():
     assert 'ORIGINAL' in expanded
 
 
+def test_let_alias_to_unknown_no_crash():
+    """\\let\\foo\\cite — alias to unknown command must not raise 'bad escape' in regex.sub."""
+    # \let\foo\cite: \cite is not defined in preamble, so stored as literal string '\cite'.
+    # When expanded, re.sub must not interpret '\c' as a regex backreference escape.
+    expanded, _, _ = demacro(doc(r'\let\foo\cite', r'\foo{ref1}'))
+    assert '\\cite' in expanded or 'ref1' in expanded or expanded  # must not crash
+
+
 def test_new_document_command_xparse():
     # xparse types: m=mandatory, o=optional(\NoValue default), O{x}=optional+explicit default
     # s=star boolean. Docs: https://ctan.org/pkg/xparse
@@ -94,6 +102,13 @@ def test_verbatim_content_preserved():
     body = '\\begin{verbatim}\n  indented   code\n  more code\n\\end{verbatim}'
     expanded, _, _ = demacro(doc('', body))
     assert '  indented   code' in expanded
+
+
+def test_declare_math_operator():
+    # \DeclareMathOperator{\myOp}{Op} (from amsmath) defines \myOp to expand to \operatorname{Op}.
+    # Docs: https://ctan.org/pkg/amsmath (amsldoc.pdf §3.4)
+    expanded, _, _ = demacro(doc(r'\DeclareMathOperator{\myOp}{Op}', r'$\myOp(x)$'))
+    assert r'\operatorname{Op}' in expanded and r'\myOp' not in expanded
 
 
 def test_verbatim_percent_not_treated_as_comment():

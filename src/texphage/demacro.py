@@ -241,6 +241,18 @@ find_New_Environ = r'\\(?:Ren|N)ewEnviron ?%s ?%s ?%s ?%s ?%s' %(token('New_Env_
 #   - \envbody substitution not performed (same limitation as find_New_Environ)
 find_new_environ = r'\\(?:re)?newenviron ?%s ?%s ?%s ?%s ?%s' %(token('New_Env_csname'), num_args('New_Env_num_args'), embed_braces('New_Env_default'), token('New_Env_begin'), token('New_Env_content'))
 
+# MATCHES: \DeclareMathOperator{\cmdname}{symbol}  and \DeclareMathOperator*{\cmdname}{symbol}
+#          (amsmath). Defines \cmdname to typeset as \operatorname{symbol} in math mode.
+#          Docs: https://ctan.org/pkg/amsmath (amsldoc.pdf §3.4)
+# CAPTURES:
+#   dmo_csname  → the command name token
+#   dmo_star    → '*' if starred form (limits above/below), else None
+#   dmo_content → the operator symbol, e.g. {Op} or {lim\,sup}
+# LIMITATIONS:
+#   - The starred vs non-starred distinction changes TeX limit placement; for
+#     demacro we expand both to \operatorname{...} / \operatorname*{...} respectively.
+find_dmo = r'\\DeclareMathOperator ?(?<dmo_star>\*)? ?%s ?%s' % (new_csname('dmo_csname'), token('dmo_content'))
+
 # Weird stuff
 find_weird_stuff = r'(?<mathpalette>\\mathpalette)|(?<makeatother>\\makeatother)|(?<makeatletter>\\makeatletter)'
 
@@ -260,7 +272,7 @@ key_value = r'(?!\s)%s(?:=%s)?(?=,|\})' %(key('key'), value('value'))
 #     detected in build_dictionary but not acted upon in the current implementation.
 #   - The elif chain order in build_dictionary() is load-order-sensitive:
 #     \edef must expand immediately using the current dict state; do not reorder.
-find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env))
+find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)|(?<dmo>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env, find_dmo))
 
 ## PREPROCESSING: verbatim protection, whitespace normalisation, package list
 
@@ -545,6 +557,18 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
             content = lambda arg : begin(arg) + arg.group(between) + end(arg)
             macro_dict[csname_group] = [pattern, content]
             find_macro += r'|(?<%s>\\begin ?\{ ?%s ?\})' %(csname_group, csname_latex)
+        elif macro.group('dmo'):
+            # \DeclareMathOperator{\myOp}{Op}  →  expand \myOp as \operatorname{Op}
+            # \DeclareMathOperator*{\myOp}{Op} →  expand \myOp as \operatorname*{Op}
+            csname = com_name(macro.group('dmo_csname'))
+            star = '*' if macro.group('dmo_star') else ''
+            symbol = _strip_delimiters(macro.group('dmo_content'))
+            expansion = r'\operatorname%s{%s}' % (star, symbol)
+            content = lambda arg, r=expansion: r
+            pattern = r'\\%s(?![a-zA-Z])' % csname
+            macro_dict[csname] = [pattern, content]
+            csname_finder = find_specific_com(csname)
+            find_macro += '|' + csname_finder
         else: #tikzset
             pass
     return macro_dict, find_macro[1:]
@@ -568,7 +592,13 @@ def expand(
         pos += macro.start()
         macro_def = macro_dict[macro.lastgroup]
         if re.search(macro_def[0], tex[pos:]):
-            new_tex = tex[:pos] + re.sub(macro_def[0], macro_def[1], tex[pos:], count=1)
+            # If the replacement is a plain string (e.g. \let alias to unknown macro),
+            # wrap it in a lambda so regex.sub does not interpret \c, \j etc. as
+            # backreference escapes and raise "bad escape" errors.
+            repl = macro_def[1]
+            if not callable(repl):
+                repl = lambda m, r=repl: r
+            new_tex = tex[:pos] + re.sub(macro_def[0], repl, tex[pos:], count=1)
             if new_tex == tex:
                 logging.log(log_level,
                     'Macro %s at pos %i is self-referential — skipping',

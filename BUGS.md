@@ -38,6 +38,8 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **last_seen**: 2026-03-21
 - **status**: OPEN
 
+---
+
 ## BUG-2: `\def` delimited patterns only capture single tokens
 
 - **severity**: LOW
@@ -55,3 +57,64 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **first_seen**: 2026-03-21
 - **last_seen**: 2026-03-21
 - **status**: OPEN
+
+---
+
+## BUG-3: `pipeline_output.tex` written without preamble (body-only)
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `_run_pipeline` in `scripts/test_fidelity.py`
+- **seen_in**: all papers (infrastructure bug, not paper-specific)
+- **description**: `demacro()` returns the expanded document body only (the content between
+  `\begin{document}...\end{document}`). The testing agent wrote this body directly to
+  `pipeline_output.tex` without a `\documentclass` or preamble, so every `latexmk` compile
+  of the pipeline output failed with "LaTeX Error: Missing \begin{document}."
+- **relevant_code_location**: `scripts/test_fidelity.py` — `_run_pipeline()`, preamble reconstruction;
+  `src/texphage/demacro.py` — `demacro()` return contract
+- **relevant_latex_docs**: N/A (infrastructure bug)
+- **reproduction**: Any paper — `pipeline_output.tex` from earlier test runs lacks `\documentclass`
+- **fix**: Call `preprocessing(tex)` to extract the preamble, then write
+  `preamble + \begin{document} + expanded_body + \end{document}` to `pipeline_output.tex`
+- **first_seen**: 2026-03-21
+- **fixed**: 2026-03-21
+- **status**: FIXED
+
+---
+
+## BUG-4: `\let` alias to unknown command causes `bad escape` in `re.sub`
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `expand()` in `src/texphage/demacro.py`
+- **seen_in**: any paper using `\let\foo\unknownCmd` where `\unknownCmd` is not defined in preamble
+- **description**: `\let\foo\cite` stores the literal string `\cite` as the replacement in
+  `macro_dict`. When passed as the `repl` argument to `re.sub()`, Python interprets `\c` as a
+  regex backreference escape and raises `regex._regex_core.error: bad escape \c at position 0`.
+- **relevant_code_location**: `src/texphage/demacro.py` — `expand()`, string vs. callable check
+- **relevant_latex_docs**: https://texdoc.org/serve/texbytopic/0 Ch.11 (`\let`)
+- **reproduction**: `\let\foo\cite` in preamble + `\foo{ref1}` in body → crash
+- **fix**: In `expand()`, wrap non-callable replacements in a lambda:
+  `if not callable(repl): repl = lambda m, r=repl: r`
+- **first_seen**: 2026-03-21
+- **fixed**: 2026-03-21
+- **status**: FIXED
+
+---
+
+## BUG-5: `\DeclareMathOperator` not recognized — macros left unexpanded
+
+- **severity**: HIGH
+- **root_cause_pattern**: `find_all` / `build_dictionary()` in `src/texphage/demacro.py`
+- **seen_in**: papers using `amsmath` — `\DeclareMathOperator{\UJ}{UJ}` etc.
+- **description**: `\DeclareMathOperator{\myOp}{Op}` (from `amsmath`) was not listed in
+  `find_all`, so `build_dictionary()` never saw it, and the macro `\myOp` remained in the
+  output unexpanded, potentially causing compilation failures or wrong output.
+- **relevant_code_location**: `src/texphage/demacro.py` — `find_dmo` pattern definition,
+  `find_all` alternation, `build_dictionary()` `dmo` branch
+- **relevant_latex_docs**: https://ctan.org/pkg/amsmath (amsldoc.pdf §3.4)
+- **reproduction**: `\DeclareMathOperator{\myOp}{Op}` + `$\myOp(x)$` → `\myOp` in output
+- **fix**: Added `find_dmo` pattern (`\\DeclareMathOperator ?(\*)?{csname}{symbol}`) to
+  `find_all` and a corresponding `elif macro.group('dmo')` branch in `build_dictionary()`
+  that expands to `\operatorname{symbol}`
+- **first_seen**: 2026-03-21
+- **fixed**: 2026-03-21
+- **status**: FIXED
