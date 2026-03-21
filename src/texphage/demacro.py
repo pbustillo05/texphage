@@ -53,27 +53,16 @@
 
 import regex as re
 from .find_packages import find_used_packages
+from texphage._regex import (
+    embed_brackets, embed_braces, token, not_tokenizer_char,
+    num_args, find_com, find_env, xparse,
+)
 
 ## ALL NECESSARY REGEX
 
-# Grabbing Tokens
-embed_brackets = lambda s : r'(?<%s>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?&%s))*(?<!\\)\})' %(s,s)
-not_tokenizer_char = r'[^\\\{\}]'
-token = lambda s : r'(%s|(?:\\[a-zA-Z]+)|%s)' %(not_tokenizer_char,embed_brackets(s))
-# Grabbing Optional Arguments
-    # ASSUMPTION: braces inside an optional argument are only used for other embedded optional arguments.
-    # PROBLEM: If used just as a character (for example in a math expression), the closing brace makes latex stop argument grabbing (when we, instead, count nesting).
-embed_braces = lambda s : r'(?<%s>(?<!\\)\[(?:[^\[\]]++|(?<=\\)\[|(?<=\\)\]|(?&%s))*(?<!\\)\])?' %(s,s)
-num_args = lambda s : r'(?:\[ ?(?<%s>\d) ?\])?' %s
-# xparse arguments description
-    # TO DO: add support for more types of arguments
-xparse = r'(?<m>\+?m)|(?<o>o)|(?<O>O%s)|(?<s>s)|(?<t>t[^\\\{\}])' %embed_brackets('default')
-
 # Naming a command
 ### IDEALLY: we use the following find_com to catch macros using a single symbol as a command. Unfortunately, this means a bit more work to adapt the regex..
-# find_com = re.compile(r'\\([a-zA-Z]+|[^a-zA-Z])') 
-find_com = re.compile(r'\\([a-zA-Z]+)')
-find_env = re.compile(r'([a-zA-Z]+) ?(\*)?')
+# find_com = re.compile(r'\\([a-zA-Z]+|[^a-zA-Z])')
 new_csname = lambda s : r'(?<%s>%s|\{ ?%s ?\})' %(s, find_com.pattern, find_com.pattern)
 def com_name(csname):
     return find_com.search(csname)[1]

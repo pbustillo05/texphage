@@ -6,8 +6,11 @@ import regex as re
 import subprocess
 import pickle
 import argparse
+from texphage._regex import (
+    embed_brackets, embed_braces, token, not_tokenizer_char,
+    num_args, find_com, find_env, xparse,
+)
 
-embed_braces = lambda s : r'(?<%s>(?<!\\)\[(?:[^\[\]]++|(?<=\\)\[|(?<=\\)\]|(?&%s))*(?<!\\)\])?' %(s,s)
 find_file = re.compile(r'[a-z0-9\+\-\.]+')
 find_pkg_lib = re.compile(r'^[^%%\n]*(?:\\(usepackage|RequirePackage)\s*%s\s*\{(?<packages>(?:[a-z0-9\+\-\.]+| |,)+)\}|\\use(?<type>tikz|pgf)library\s*\{(?<libraries>(?:[a-z0-9\+\-\.]+| |,)+)\})' %embed_braces('options'), flags=re.MULTILINE)
 

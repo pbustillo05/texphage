@@ -1,0 +1,6 @@
+*.pdf
+*.gz
+*.tar
+*.tar.gz
+cache/
+tests/runs/
