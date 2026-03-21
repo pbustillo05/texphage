@@ -87,18 +87,134 @@ def find_specific_env(csname):
     return ''
 
 # Commands
+
+# MATCHES: \def\cmdname<pattern>{body}  or  \gdef\cmdname<pattern>{body}
+# CAPTURES:
+#   def_csname   → the command name token, e.g. \foo or {\foo}
+#   def_pattern  → TeX parameter text between name and body, e.g. "#1 and #2"
+#                  (may be empty for zero-argument commands)
+#   def_content  → the replacement body: a single token or a {brace group}
+# LIMITATIONS:
+#   - \long\def and \outer\def prefixes not handled (they are ignored in practice)
+#   - Single-symbol command names (\|, \!) not matched (find_com only handles [a-zA-Z]+)
+#   - Delimited arguments (token patterns) are captured verbatim; build_dictionary
+#     converts #N placeholders into named capture groups at expansion time
 find_def = r'\\g?def ?%s(?<def_pattern>[^\{]*)%s' %(new_csname('def_csname'), token('def_content'))
+
+# MATCHES: \edef\cmdname<pattern>{body}  or  \xdef\cmdname<pattern>{body}
+# CAPTURES:
+#   edef_csname   → the command name token
+#   edef_pattern  → parameter text (same as def_pattern)
+#   edef_content  → replacement body, expanded immediately using current macro_dict
+# LIMITATIONS:
+#   - Same single-symbol and prefix limitations as find_def
+#   - \xdef is \global\edef; the \global scope is ignored (same semantics for expansion)
+#   - Expansion is done by calling expand() on edef_content at parse time;
+#     fully recursive \edef chains may not expand completely in one pass
 find_edef = r'\\(e|x)def ?%s(?<edef_pattern>[^{]*)%s' %(new_csname('edef_csname'), token('edef_content'))
+
+# MATCHES: \let\alias\original  or  \let\alias=\original  or  \let\alias<token>
+#          Also \LetLtxMacro and \GlobalLetLtxMacro (letltxmacro package).
+#          Docs: https://ctan.org/pkg/letltxmacro
+# CAPTURES:
+#   let_csname          → the new alias name
+#   let_content         → the right-hand side: either a control sequence or a single char
+#   let_called_csname   → if RHS is a control sequence, its name (without \)
+# LIMITATIONS:
+#   - If let_called_csname is already in macro_dict, the alias inherits the same
+#     expansion pattern. If not, let_content is stored as a literal string replacement.
+#   - \futurelet is not handled.
 find_let = r'\\(?:let|LetLtxMacro|GlobalLetLtxMacro) ?%s ?=? ?(?<let_content>(?:\\(?<let_called_csname>[a-zA-Z]+))|.)' %new_csname('let_csname')
+
+# MATCHES: \newcommand{\cmdname}[N][default]{body}  and variants:
+#          \renewcommand, \providecommand, \newrobustcmd, \renewrobustcmd,
+#          \providerobustcmd (etoolbox), \DeclareRobustCommand,
+#          \newcommandtwoopt, \renewcommandtwoopt (twoopt package),
+#          all optionally followed by 'x' (xargs variant).
+#          Docs: https://ctan.org/pkg/xargs  https://ctan.org/pkg/etoolbox
+#                https://ctan.org/pkg/twoopt
+# CAPTURES:
+#   new_com_csname    → the command name
+#   new_com_xargs     → 'x' if this is an xargs variant, else None
+#   new_com_num_args  → the optional [N] argument count, e.g. "2"
+#   new_com_default1  → first optional default value [default]
+#   new_com_default2  → second optional default (twoopt only)
+#   new_com_content   → the replacement body
+# LIMITATIONS:
+#   - \newcommand* (starred form) is matched but treated identically to unstarred
+#     (starred disallows \par in args; irrelevant for macro expansion)
+#   - xargs positional key [i=default] syntax (e.g. [1=Hello]) is NOT supported;
+#     see BUGS.md for the open issue
+#   - robustcmd 'x' variants technically don't exist but are harmlessly matched
 find_new_com = r'\\(?:(?:renew|new|provide)(?:command(?:twoopt)?|robustcmd)|DeclareRobustCommand)(?<new_com_xargs>x)? ?\*? ?%s ?%s ?%s ?%s ?%s' %(new_csname('new_com_csname'), num_args('new_com_num_args'), embed_braces('new_com_default1'), embed_braces('new_com_default2'), token('new_com_content')) #technically, the robustcmd "x" variants don't exist
-find_new_doc_com = r'\\(?:New|Renew|Provide|Declare)(?:Expandable)?DocumentCommand ?%s ?%s ?%s' %(new_csname('new_doc_com_csname'), token('new_doc_com_args'), token('new_doc_com_content'))
 #find_twoopt = r'\\(renew|new|provide)commandtwoopt ?\*? ?%s ?%s ?%s ?%s ?%s' %(new_csname('new_com_csname'), num_args('new_com_num_args'), embed_braces('new_com_default1'), embed_braces('new_com_default2'), token('new_com_content'))
 
+# MATCHES: \NewDocumentCommand{\cmdname}{arg-spec}{body}  and variants:
+#          \RenewDocumentCommand, \ProvideDocumentCommand, \DeclareDocumentCommand,
+#          \NewExpandableDocumentCommand (and Renew/Provide/Declare variants).
+#          xparse is now part of the LaTeX kernel. Docs: https://ctan.org/pkg/xparse
+# CAPTURES:
+#   new_doc_com_csname  → the command name
+#   new_doc_com_args    → the xparse argument specification string, e.g. "m o O{default} s"
+#   new_doc_com_content → the replacement body
+# LIMITATIONS:
+#   - Argument types supported: m, o, O{default}, s, t<token>
+#   - Unsupported: r<tok1><tok2>, R, v, b, e, E, >, +m, +o, etc.
+#   - \IfNoValueTF / \IfBooleanTF conditionals inside the body are NOT evaluated
+find_new_doc_com = r'\\(?:New|Renew|Provide|Declare)(?:Expandable)?DocumentCommand ?%s ?%s ?%s' %(new_csname('new_doc_com_csname'), token('new_doc_com_args'), token('new_doc_com_content'))
+
 # Environments
+
+# MATCHES: \newenvironment{name}[N][default]{begin}{end}  and \renewenvironment variants,
+#          optionally with 'x' suffix (xargs). Docs: https://ctan.org/pkg/xargs
+# CAPTURES:
+#   new_env_csname    → environment name token
+#   new_env_xargs     → 'x' if xargs variant, else None
+#   new_env_num_args  → optional [N] argument count
+#   new_env_default   → optional [default] for first argument
+#   new_env_begin     → begin-code token or {brace group}
+#   new_env_end       → end-code token or {brace group}
+# LIMITATIONS:
+#   - xargs positional key syntax not supported (same as find_new_com)
+#   - Starred environments (name*) are handled via env_name() returning (name_star, name ?\*)
 find_new_env = r'\\(?:re)?newenvironment(?<new_env_xargs>x)? ?\*? ?%s ?%s ?%s ?%s ?%s' %(token('new_env_csname'), num_args('new_env_num_args'), embed_braces('new_env_default'), token('new_env_begin'), token('new_env_end'))
+
+# MATCHES: \NewDocumentEnvironment{name}{arg-spec}{begin}{end}  and variants.
+#          Docs: https://ctan.org/pkg/xparse
+# CAPTURES:
+#   new_doc_env_csname  → environment name
+#   new_doc_env_args    → xparse argument specification string
+#   new_doc_env_begin   → begin-code
+#   new_doc_env_end     → end-code
+# LIMITATIONS:
+#   - Same xparse argument type limitations as find_new_doc_com
 find_new_doc_env = r'\\(?:New|Renew|Provide|Declare)DocumentEnvironment ?%s ?%s ?%s ?%s' %(token('new_doc_env_csname'), token('new_doc_env_args'), token('new_doc_env_begin'), token('new_doc_env_end'))
+
+# MATCHES: \NewEnviron{name}[N][default]{body}[\finalcode]  and \RenewEnviron.
+#          The environ package captures the body as \BODY. Docs: https://ctan.org/pkg/environ
+# CAPTURES:
+#   New_Env_csname    → environment name
+#   New_Env_num_args  → optional [N] argument count
+#   New_Env_default   → optional [default]
+#   New_Env_content   → the macro body (references \BODY for the environment content)
+#   New_Env_end       → optional [final-code] appended after body expansion
+# LIMITATIONS:
+#   - \BODY substitution is not performed during expansion (body is treated as opaque text)
+#   - \environbodyname customisation not handled
 find_New_Environ = r'\\(?:Ren|N)ewEnviron ?%s ?%s ?%s ?%s ?%s' %(token('New_Env_csname'), num_args('New_Env_num_args'), embed_braces('New_Env_default'), token('New_Env_content'), embed_braces('New_Env_end'))
+
+# MATCHES: \newenviron{name}[N][default]{begin-code}{body}  and \renewenviron.
+#          The newenviron package (older alternative to environ). Docs: https://ctan.org/pkg/newenviron
+# CAPTURES:
+#   New_Env_csname    → environment name  (shares group names with find_New_Environ)
+#   New_Env_num_args  → optional [N]
+#   New_Env_default   → optional [default]
+#   New_Env_begin     → begin-code
+#   New_Env_content   → body macro (references \envbody or \<name>body)
+# LIMITATIONS:
+#   - \envbody substitution not performed (same limitation as find_New_Environ)
 find_new_environ = r'\\(?:re)?newenviron ?%s ?%s ?%s ?%s ?%s' %(token('New_Env_csname'), num_args('New_Env_num_args'), embed_braces('New_Env_default'), token('New_Env_begin'), token('New_Env_content'))
+
 # Weird stuff
 find_weird_stuff = r'(?<mathpalette>\\mathpalette)|(?<makeatother>\\makeatother)|(?<makeatletter>\\makeatletter)'
 
@@ -107,7 +223,17 @@ key = lambda s : r' ?(?<%s>(?:\/(?!\.))?(?:[^=,\/]+?(?:\/(?!\.)))*)(?<%s>[^=,\/]
 value = lambda s : r'(?<%s>(?:%s|[^,\{\}])*)' %(s, embed_brackets('brackted_' + s))
 key_value = r'(?!\s)%s(?:=%s)?(?=,|\})' %(key('key'), value('value'))
 
-# Putting them together
+# MATCHES: any macro-definition command in the preamble — the union of all patterns above.
+# CAPTURES: top-level groups 'def', 'edef', 'let', 'new_com', 'new_env',
+#           'new_doc_com', 'new_doc_env' identify which branch matched.
+#           All sub-captures from the matched branch are also available.
+# NOTE: find_New_Environ and find_new_environ are NOT included here; they are
+#       handled by find_new_env's branch in build_dictionary via the xargs flag.
+# LIMITATIONS:
+#   - find_weird_stuff (mathpalette, makeatletter) is not included; those are
+#     detected in build_dictionary but not acted upon in the current implementation.
+#   - The elif chain order in build_dictionary() is load-order-sensitive:
+#     \edef must expand immediately using the current dict state; do not reorder.
 find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env))
 
 ## PREPROCESSING: whitespace removal, list of packages
