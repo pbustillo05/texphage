@@ -1,15 +1,211 @@
-"""Stub: implemented in Phase 1."""
+"""Unfold a multi-file LaTeX project into a single flat .tex string.
+
+The main entry point is unfold(). It recursively resolves \\input, \\include,
+\\import, \\subimport, and \\subfile by reading referenced files and substituting
+their content in place. Images and other non-.tex assets are left as-is.
+
+This module has NO dependency on network access, archive extraction, or macro
+expansion. Its only inputs are local filesystem paths.
+"""
 from __future__ import annotations
 
+import glob
+import logging
+import os
+import re
+from pathlib import Path
 
-def unfold(directory, main=None, inline_local_packages=False, _visited=None):
-    """Stub — implemented in Phase 1."""
-    raise NotImplementedError("unfold is implemented in Phase 1")
+logger = logging.getLogger(__name__)
 
-
-def find_main_file(directory):
-    """Stub — implemented in Phase 1."""
-    raise NotImplementedError("find_main_file is implemented in Phase 1")
-
+_FIND_INPUT = re.compile(r"""
+    ^[^%\n]*
+    (?:
+        (?P<input>     \\input      \s*\{\s*(?P<input_path>      .*?)\s*\})  |
+        (?P<include>   \\include    \s*\{\s*(?P<include_path>    .*?)\s*\})  |
+        (?P<usepkg>    \\usepackage \s*\{\s*(?P<usepkg_path>     .*?)\s*\})  |
+        (?P<import_>   \\import     \s*\{\s*(?P<import_dir>      .*?)\s*\}\s*\{\s*(?P<import_file>    .*?)\s*\})  |
+        (?P<subimport> \\subimport  \s*\{\s*(?P<subimport_dir>   .*?)\s*\}\s*\{\s*(?P<subimport_file> .*?)\s*\})  |
+        (?P<subfile>   \\subfile(?:include)?\s*\{\s*(?P<subfile_path>.*?)\s*\})
+    )
+""", re.MULTILINE | re.VERBOSE)
 
 __all__ = ["unfold", "find_main_file"]
+
+
+def find_main_file(directory: str | Path) -> str:
+    """Locate the main .tex file in a LaTeX project directory.
+
+    Search order (stops at first match):
+    1. 00README.XXX file naming the toplevel (arXiv convention).
+    2. Canonical names in order: main.tex, paper.tex, article.tex,
+       manuscript.tex — if they contain \\documentclass.
+    3. Any .tex file containing \\documentclass, sorted alphabetically
+       for determinism across all operating systems.
+
+    Returns file content as a string, or empty string if none found.
+    """
+    directory = str(directory)
+
+    # 1. arXiv 00README.XXX
+    try:
+        readme = open(os.path.join(directory, '00README.XXX'), encoding='utf-8').read()
+        m = re.search(r'^\s*(.*?)\.tex\s*toplevelfile\s*$', readme, flags=re.MULTILINE)
+        if m:
+            return open(
+                os.path.join(directory, m.group(1) + '.tex'), encoding='utf-8'
+            ).read()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning("Error reading 00README.XXX in %s: %s", directory, e)
+
+    # 2 & 3. Sort for determinism; prefer canonical names.
+    all_tex = sorted(glob.glob('*.tex', root_dir=directory))
+    preferred = ['main.tex', 'paper.tex', 'article.tex', 'manuscript.tex']
+    ordered = [f for f in preferred if f in all_tex] + \
+              [f for f in all_tex if f not in preferred]
+
+    for filename in ordered:
+        try:
+            content = open(os.path.join(directory, filename), encoding='utf-8').read()
+            if re.search(r'\\documentclass', content):
+                return content
+        except Exception as e:
+            logger.warning("Could not read %s: %s", filename, e)
+
+    logger.warning("No main .tex file found in %s", directory)
+    return ''
+
+
+def _make_file_replacement(
+    directory: str,
+    visited: set[str],
+    inline_local_packages: bool,
+):
+    """Return a re.sub replacement callable for resolving file inclusions."""
+    def replacement(match: re.Match) -> str:
+        if match.group('input'):
+            path = match.group('input_path')
+            if '.' not in os.path.basename(path):
+                path += '.tex'
+            full = os.path.realpath(os.path.join(directory, path))
+            if full in visited:
+                logger.warning("Circular \\input: %s — leaving unexpanded", path)
+                return match.group(0)
+            try:
+                content = open(full, encoding='utf-8').read()
+            except FileNotFoundError:
+                logger.warning("\\input not found: %s", full)
+                return match.group(0)
+            return unfold(os.path.dirname(full), main=content,
+                          _visited=visited | {full})
+
+        elif match.group('include'):
+            path = match.group('include_path') + '.tex'
+            full = os.path.realpath(os.path.join(directory, path))
+            if full in visited:
+                logger.warning("Circular \\include: %s — leaving unexpanded", path)
+                return match.group(0)
+            try:
+                content = open(full, encoding='utf-8').read()
+            except FileNotFoundError:
+                logger.warning("\\include not found: %s", full)
+                return match.group(0)
+            body = unfold(os.path.dirname(full), main=content,
+                          _visited=visited | {full})
+            # \include = \input + \clearpage wrapper (creates chapter page breaks)
+            return '\n\\clearpage\n' + body + '\n\\clearpage\n'
+
+        elif match.group('import_') or match.group('subimport'):
+            # \import{dir}{file}: dir absolute/root-relative; changes search root.
+            # \subimport{dir}{file}: dir relative to current file's directory.
+            # Docs: https://ctan.org/pkg/import
+            if match.group('import_'):
+                imp_dir, imp_file = match.group('import_dir'), match.group('import_file')
+            else:
+                imp_dir, imp_file = match.group('subimport_dir'), match.group('subimport_file')
+            if '.' not in os.path.basename(imp_file):
+                imp_file += '.tex'
+            full_dir = os.path.realpath(os.path.join(directory, imp_dir))
+            full     = os.path.realpath(os.path.join(full_dir, imp_file))
+            if full in visited:
+                logger.warning("Circular \\import: %s — leaving unexpanded", full)
+                return match.group(0)
+            try:
+                content = open(full, encoding='utf-8').read()
+            except FileNotFoundError:
+                logger.warning("\\import not found: %s", full)
+                return match.group(0)
+            return unfold(full_dir, main=content, _visited=visited | {full})
+
+        elif match.group('subfile'):
+            # \subfile: sub-document has its own \documentclass preamble.
+            # Strip it; keep only \begin{document}...\end{document} body.
+            # Docs: https://ctan.org/pkg/subfiles
+            path = match.group('subfile_path')
+            if '.' not in os.path.basename(path):
+                path += '.tex'
+            full = os.path.realpath(os.path.join(directory, path))
+            if full in visited:
+                logger.warning("Circular \\subfile: %s — leaving unexpanded", path)
+                return match.group(0)
+            try:
+                content = open(full, encoding='utf-8').read()
+            except FileNotFoundError:
+                logger.warning("\\subfile not found: %s", full)
+                return match.group(0)
+            body_m = re.search(
+                r'\\begin\s*\{document\}(.*?)\\end\s*\{document\}',
+                content, flags=re.DOTALL,
+            )
+            if body_m:
+                content = body_m.group(1)
+            return unfold(os.path.dirname(full), main=content,
+                          _visited=visited | {full})
+
+        elif match.group('usepkg') and inline_local_packages:
+            result = ''
+            for pkg in re.finditer(r'[a-z0-9\+\-\.]+', match.group('usepkg_path')):
+                sty = os.path.join(directory, pkg[0] + '.sty')
+                try:
+                    sty_content = open(sty, encoding='utf-8').read()
+                    result += '\n\\makeatletter\n' + \
+                              unfold(directory, main=sty_content, _visited=visited) + \
+                              '\n\\makeatother\n'
+                except FileNotFoundError:
+                    result += r'\usepackage{' + pkg[0] + '}\n'
+            return result
+
+        return match.group(0)
+    return replacement
+
+
+def unfold(
+    directory: str | Path,
+    main: str | None = None,
+    inline_local_packages: bool = False,
+    _visited: set[str] | None = None,
+) -> str:
+    """Flatten a multi-file LaTeX project into a single .tex string.
+
+    Resolves \\input, \\include, \\import, \\subimport, and \\subfile
+    recursively. Safe against circular includes (second occurrence left
+    unexpanded with a warning logged).
+
+    Args:
+        directory: Project directory; relative paths resolve here.
+        main: Main .tex content. If None, find_main_file() is called.
+        inline_local_packages: If True, local .sty files are inlined.
+            Off by default — risky for complex packages.
+        _visited: Internal only. Do not pass from outside.
+
+    Returns:
+        A single flat .tex string with all resolvable includes substituted.
+    """
+    directory = str(directory)
+    if main is None:
+        main = find_main_file(directory)
+    if _visited is None:
+        _visited = set()
+    repl = _make_file_replacement(directory, _visited, inline_local_packages)
+    return re.sub(_FIND_INPUT, repl, main, flags=re.MULTILINE)

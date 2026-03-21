@@ -1,25 +1,31 @@
 import argparse
+import re
 import shutil
 import os
 import glob
 import gzip
 import sys
-import argparse
 import tarfile
 import requests
 import urllib.request
 from tqdm import tqdm
 from typing import List
 
+from texphage.unfold import unfold
+from texphage.demacro import demacro
+
 sys.path.append('.')
+
 
 class ExistingOutput(Exception):
     def __init__(self, message):
         super().__init__(message)
 
+
 def gunzip_file(gz_file, unzipped_file):
     with gzip.open(gz_file, 'rt', encoding="utf-8") as gzf, open(unzipped_file, 'w') as f:
         f.write(gzf.read())
+
 
 # https://stackoverflow.com/questions/480214/how-do-i-remove-duplicates-from-a-list-while-preserving-order
 def dedup_preserve_order(list):
@@ -27,10 +33,12 @@ def dedup_preserve_order(list):
     seen_add = seen.add
     return [x for x in list if not (x in seen or seen_add(x))]
 
+
 def write_output(codes, pngs, output_dir):
     with open(os.path.join(output_dir, "tikzcd.txt"), 'w') as f:
         f.write("\n".join(codes))
     return len(codes)
+
 
 def process_arxiv_ids(ids, output_dir, force):
     print(f"Processing {len(ids)} IDs...")
@@ -43,84 +51,13 @@ def process_arxiv_ids(ids, output_dir, force):
         except Exception as e:
             print(f"Failed processing for id={id}, error={e}")
 
-def arxiv_find_main(id_output_dir):
-    main = ''
-    try:
-        readme = open(os.path.join(id_output_dir, '00README.XXX'), 'r', encoding='utf-8').read()
-        filename = re.search(r'^\s*(.*)\.tex\s*toplevelfile\s*$', readme, flags=re.MULTILINE).group(1) + '.tex'
-        # print(f"Found main arxiv file in directory %s: %s" %(id_output_dir, filename))
-        main = open(os.path.join(id_output_dir, filename), 'r', encoding='utf-8').read()
-    except FileNotFoundError:
-        for filename in glob.glob('*.tex', root_dir = id_output_dir):
-            tex = open(os.path.join(id_output_dir, filename), 'r', encoding='utf-8').read()
-            if re.search(r'\\documentclass', tex):
-                main = open(os.path.join(id_output_dir, filename), 'r', encoding='utf-8').read()
-                # print(f"Found main arxiv file in directory %s: %s" %(id_output_dir, filename))
-                break
-    except Exception as e:
-        print(f"Error while finding main arxiv file in directory %s: {e}" %id_output_dir)
-    return main
-    
-find_input = r'''
-    ^[^%\n]*
-    (?<input>\\input\s*\{\s*(?<input_path>.*?)\s*\})    |
-    (?<include>\\include\s*\{\s*(?<include_path>.*?)\s*\})    |
-    (?<usepkg>\\usepackage\s*\{\s*(?<usepkg_path>.*?)\s*\})    |
-    (?<import>\\import\s*\{\s*(?<import_path>.*?)\s*\}\s*\{\s*(?<import_file>.*?)\s*\})   |
-    (?<subimport>\\subimport\s*\{\s*(?<subimport_path>.*?)\s*\}\s*\{\s*(?<subimport_file>.*?)\s*\})  |
-    (?<subfile>\\subfile(?:include)\s*?\{\s*(?<subfile_path>.*?)\s*\})
-'''
-find_input = re.sub(r'\s+', '', find_input)
-
-def file_replacement(directory):
-    def replacement(match):
-        if match.group('input'):
-            if re.search(r'\.', match.group('input_path')):
-                path = match.group('input_path')
-            else:
-                path = match.group('input_path') + '.tex'
-            try:
-                called_file = open(os.path.join(directory, path), 'r', encoding='utf-8').read()
-            except FileNotFoundError:
-                print("FileNotFoundError: Couldn't open the file called by %s at %s"  %(match.group(0), os.path.join(directory, path)))
-                return match.group(0)
-            else:
-                return arxiv_unfold_dir(directory, main = called_file)
-        elif match.group('include'):
-            path = match.group('include_path') + '.tex'
-            try:
-                called_file = '\n' + r'\clearpage' + '\n' + open(os.path.join(directory, path), 'r', encoding='utf-8').read() + '\n' + r'\clearpage' + '\n'
-            except FileNotFoundError:
-                print("FileNotFoundError: Couldn't open the file called by %s at %s"  %(match.group(0), os.path.join(directory, path)))
-                return match.group(0)
-            else:
-                return arxiv_unfold_dir(directory, main = called_file)
-        elif match.group('usepkg'):
-            unfolded = ''
-            for called_package in re.finditer(r'[a-z0-9\+\-\.]+', match.group('usepkg_path')):
-                path = called_package[0] + '.sty'
-                try:
-                    unfolded += '\n' + r'\makeatletter' + '\n' + arxiv_unfold_dir(directory, main = open(os.path.join(directory, path), 'r', encoding='utf-8').read()) + '\n' + r'\makeatother' + '\n'
-                except FileNotFoundError:
-                    unfolded += r'\usepackage{' + called_package[0] + '}\n'
-            return unfolded
-        else:
-            print("The command %s is not implemented yet" %match.group(0))
-            return match.group(0)
-    return replacement
-
-def arxiv_unfold_dir(id_output_dir, main = None):
-    if main is None:
-        main = arxiv_find_main(id_output_dir)
-    replacement = file_replacement(id_output_dir)
-    return re.sub(find_input, replacement, main, flags=re.MULTILINE)
 
 def process_arxiv_id(id, output_dir, force):
     # Set up output directory
     id_output_dir = os.path.join(output_dir, id)
     try:
         os.makedirs(id_output_dir, exist_ok=force)
-    except OSError as e:
+    except OSError:
         raise ExistingOutput(id_output_dir)
 
     # Download the raw data
@@ -142,13 +79,24 @@ def process_arxiv_id(id, output_dir, force):
             shutil.copy(downloaded_data, unzipped_file)
 
     os.remove(downloaded_data)
-    
-    tex = arxiv_unfold_dir(raw_data)
-    with open(os.path.join('dataset/unfolded_tex', id + '.tex'), 'w') as f:
+
+    tex = unfold(raw_data)
+    expanded_tex, packages, problems = demacro(tex)
+    os.makedirs('cache/unfolded_tex', exist_ok=True)
+    with open(os.path.join('cache/unfolded_tex', id + '.tex'), 'w') as f:
         f.write(tex)
 
     return tex
-    
+
+
+# TODO: implement xy_to_tikzcd converter
+# def xy_to_tikzcd(tex):
+#     ...
+
+# find_tikzcd: not yet implemented — see src/texphage/extract_latex.py
+# from texphage.extract_latex import find_tikzcd
+
+
 def get_all_arxiv_ids(num, category, year) -> List[str]:
     print(f"Getting first {num} arxiv ID's from {category} in year {year}...")
 
@@ -159,6 +107,7 @@ def get_all_arxiv_ids(num, category, year) -> List[str]:
     # We slice it at num because sometimes arxix returns a few more ID's than we asked for.
     return dedup_preserve_order([id for id in arxiv_id_regex.findall(content)])[:num]
 
+
 def main(args):
     if args.out is None:
         print("Output directory (-o) is missing")
@@ -166,14 +115,11 @@ def main(args):
     elif not os.path.exists(args.out):
         print(f"Output directory '{args.out}' does not exist")
         return
-    
+
     if args.memory_limit is None:
         # Default to 3GB for now
         args.memory_limit = 3*(1 << 30)
-    
-    #P# This was creating issues for me: to be fixed.
-    # resource.setrlimit(resource.RLIMIT_RSS, (args.memory_limit, args.memory_limit))
-    
+
     ids = []
 
     if args.mode == 'top':
@@ -181,13 +127,14 @@ def main(args):
         print(num)
         category = args.args[1]
         print(category)
-        year = "24" #"pastyear"
+        year = "24"
         ids = get_all_arxiv_ids(num, category, year)
 
     if args.mode == 'ids':
         ids = args.args
 
     process_arxiv_ids(ids, args.out, args.force)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extract tikzcd from Latex')
