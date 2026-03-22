@@ -53,6 +53,8 @@ htmlcov/
 .pytest_cache/
 .tox/
 .nox/
+# pytest tmp_path directories created in project root when rootdir == project
+pytest-of-*/
 
 # mypy
 .mypy_cache/
