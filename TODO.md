@@ -12,6 +12,41 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 
 ## Proposed
 
+*   **[REFACTOR] Create a shared `arxiv_utils` module**
+
+    **Motivation:** Logic for downloading and processing arXiv sources is duplicated between `scripts/extractor.py` and `scripts/test_fidelity.py`. This makes maintenance harder and creates an unhealthy dependency where a test script imports from another script.
+
+    **Plan:**
+    1.  Create a new file: `src/texphage/arxiv_utils.py`.
+    2.  Move `get_all_arxiv_ids` from `scripts/extractor.py` into `src/texphage/arxiv_utils.py`.
+    3.  Create a new function `download_and_extract_source(arxiv_id, dest_dir)` in the new module. This function will contain the logic for downloading a tarball from `https://arxiv.org/e-print/` and extracting it. This logic should be merged from `scripts/extractor.py:process_arxiv_id` and `scripts/test_fidelity.py:_download_arxiv`. It should handle both `.tar.gz` and gzipped `.tex` files.
+    4.  Refactor `scripts/extractor.py` and `scripts/test_fidelity.py` to import and use the new functions from `src/texphage/arxiv_utils.py`.
+
+*   **[REFACTOR] Consolidate regex helper functions**
+
+    **Motivation:** The file `src/texphage/demacro.py` contains several small, regex-related helper functions (`new_csname`, `com_name`, `env_name`, etc.) that are conceptually part of the regex toolkit, which lives in `src/texphage/_regex.py`.
+
+    **Plan:**
+    1.  Move the following functions from `src/texphage/demacro.py` to `src/texphage/_regex.py`:
+        - `new_csname` (lambda)
+        - `com_name`
+        - `env_name`
+        - `find_specific_com`
+        - `find_specific_env`
+    2.  Update `src/texphage/demacro.py` to import these functions from `_regex.py`.
+
+*   **[REFACTOR] `find_command` pattern reuse**
+
+    **Motivation:** The `find_command` function in `src/texphage/find_packages.py` defines its own complex regex patterns for matching macro definitions, which are very similar to the `find_all` pattern in `src/texphage/demacro.py`. This is a form of code duplication.
+
+    **Plan:**
+    1.  Expose the component patterns of `find_all` in `demacro.py` (e.g., `find_def`, `find_new_com`) in a way that they can be imported.
+    2.  Refactor the `pattern_env` and `pattern_cmd` regexes in `find_packages.py:find_command` to be built by combining the imported patterns from `demacro.py` with a specific `csname`. This is lower priority as it is more involved.
+
+
+## Accepted
+*(Items to be prioritized by the user)*
+
 *   **[ENHANCEMENT] Truly minimal `\usepackage` list in `build_minimal_preamble` — Phase 2 (beta pruning)**
 
     Phase 1 (unify parsing with `find_packages.py`, preserve options+order) is **Done** — see Done section.
@@ -94,9 +129,6 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 *   **[ENHANCEMENT] Conditional Support:** Add basic support for TeX conditionals like `\if...`, `\ifx...`, especially for handling starred versions of commands/environments where the logic is often `\newif\if@star ... \@ifstar{\@startrue...}{\@starfalse...}`.
 *   **[REFACTOR] `demacro.py` cleanup:** The `build_dictionary` function is becoming very large. Investigate splitting the logic for each definition type (e.g., `_handle_new_com`, `_handle_def`) into separate helper functions.
 
-## Accepted
-*(Items to be prioritized by the user)*
-
 ## In Progress
 
 ## Done
@@ -108,4 +140,3 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     duplicated `_USEPACKAGE_RE` regex.  Result is functionally identical to before
     (same `\usepackage` calls, same options, same order) but parsing is unified and
     structured data (`names`, `options`) is available for Phase 2 pruning.
-

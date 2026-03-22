@@ -199,10 +199,10 @@ Temporary Items
 # CLAUDE / ANTHROPIC
 # =============================================================================
 
-# Claude project metadata
-.claude/
+# Track .claude/ (agents, skills, settings.json) but not machine-local overrides.
+.claude/settings.local.json
 
-# NOTE: CLAUDE.md and AGENTS.md are intentionally committed.
+# NOTE: CLAUDE.md, AGENTS.md, .claude/agents/, and .claude/skills/ are committed.
 
 # =============================================================================
 # JETBRAINS (PyCharm, etc.)
@@ -248,17 +248,10 @@ Desktop.ini
 
 
 # =============================================================================
-
 # GEMINI / GOOGLE
-
 # =============================================================================
 
+# Track .gemini/ but not machine-local overrides.
+.gemini/settings.local.json
 
-
-# Gemini project metadata
-
-.gemini/
-
-
-
-# NOTE: GEMINI.md is intentionally committed.
+# NOTE: GEMINI.md and .gemini/notes/ are committed.

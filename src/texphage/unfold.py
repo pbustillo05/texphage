@@ -17,6 +17,44 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# _FIND_INPUT — the single pattern that recognises all supported file-inclusion directives.
+#
+# MATCHES (one named branch per inclusion form):
+#   input     → \input{path}
+#   include   → \include{path}          (.tex auto-appended; body wrapped in \clearpage)
+#   usepkg    → \usepackage{pkg}        (only when inline_local_packages=True)
+#   import_   → \import{dir}{file}      (import pkg; dir is absolute/root-relative)
+#   subimport → \subimport{dir}{file}   (import pkg; dir is relative to current file)
+#   subfile   → \subfile{path} or \subfileinclude{path}   (subfiles pkg; own preamble stripped)
+#
+# CAPTURES (named groups):
+#   input_path, include_path, usepkg_path,
+#   import_dir, import_file, subimport_dir, subimport_file, subfile_path
+#
+# LIMITATIONS:
+#   [observed] The ^[^%\n]* guard prevents matching directives that start a line with
+#              a comment, but a % occurring after real content on the same line will
+#              still allow the directive to match even if it is preceded by a comment
+#              marker mid-line (e.g., "text % \input{foo}" is matched).
+#   [observed] \input auto-appends .tex only when the path has no extension (no dot in
+#              the basename); paths with any extension are used verbatim.
+#   [observed] \include always forces a .tex extension; there is no way to \include a
+#              non-.tex file regardless of what extension the argument carries.
+#   [observed] \subfileinclude is handled identically to \subfile (same branch).
+#   [observed] \usepackage inlining is disabled by default (inline_local_packages=False)
+#              and only resolves packages found as local .sty files in the project
+#              directory; system packages are left as \usepackage{...}.
+#   [inferred] \InputIfFileExists{file}{true}{false} not handled — conditional input
+#              from the LaTeX2e kernel; the false-branch is silently ignored (source2e §Input).
+#   [inferred] \input@path, \graphicspath and similar path-modifying commands not
+#              tracked; unfold always resolves paths relative to the current file's
+#              directory, which matches standard LaTeX behaviour for most documents.
+#   [inferred] \RequirePackage and \LoadClass (common in .sty/.cls files) not handled —
+#              they accept the same argument form as \usepackage but are used in package
+#              and class code rather than in author documents.
+#   [inferred] \verbatiminput, \lstinputlisting, \inputminted not handled — these insert
+#              file content verbatim (as code listings) and should not be expanded into
+#              the document body for NLP purposes anyway.
 _FIND_INPUT = re.compile(r"""
     ^[^%\n]*
     (?:

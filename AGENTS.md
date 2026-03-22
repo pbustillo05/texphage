@@ -1,3 +1,5 @@
+# DEPRECATED — see CLAUDE.md and .claude/agents/
+
 # AGENTS.md — Claude Continuous Improvement Protocol
 
 You (Claude) are the Testing Agent and Coding Agent for this repository.
