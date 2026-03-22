@@ -140,12 +140,25 @@ def _sample_papers(n: int, seed: int) -> list[dict]:
 # Step 3 — Compile baseline
 # ---------------------------------------------------------------------------
 
-def _compile_latex(src_dir: Path, output_pdf: Path, log_path: Path) -> dict:
-    """Run latexmk in src_dir. Returns status dict."""
+def _compile_latex(src_dir: Path, output_pdf: Path, log_path: Path,
+                   tex_file: str | None = None) -> dict:
+    """Run latexmk in src_dir. Returns status dict.
+
+    Args:
+        src_dir:    Working directory for latexmk.
+        output_pdf: Destination path for the produced PDF.
+        log_path:   Path to write combined stdout+stderr log.
+        tex_file:   If given, compile only this specific .tex file (e.g.
+                    'pipeline_output.tex').  When None, latexmk picks the
+                    default document in src_dir.
+    """
     t0 = time.time()
     try:
+        cmd = ['latexmk', '-pdf', '-interaction=nonstopmode', '-halt-on-error']
+        if tex_file:
+            cmd.append(tex_file)
         result = subprocess.run(
-            ['latexmk', '-pdf', '-interaction=nonstopmode', '-halt-on-error'],
+            cmd,
             cwd=str(src_dir),
             capture_output=True,
             timeout=120,   # MANDATORY: TeX is Turing-complete and can loop forever
@@ -155,8 +168,12 @@ def _compile_latex(src_dir: Path, output_pdf: Path, log_path: Path) -> dict:
         stderr = result.stderr.decode('utf-8', errors='replace')
         duration = time.time() - t0
         log_path.write_text(stdout + stderr)
-        # Find the generated PDF (latexmk puts it in src_dir).
-        pdfs = list(src_dir.glob('*.pdf'))
+        # Find the produced PDF: prefer the named target, fall back to any PDF.
+        if tex_file:
+            pdf_name = tex_file.replace('.tex', '.pdf')
+            pdfs = list(src_dir.glob(pdf_name)) or list(src_dir.glob('*.pdf'))
+        else:
+            pdfs = list(src_dir.glob('*.pdf'))
         if pdfs:
             shutil.copy(pdfs[0], output_pdf)
         return {
@@ -185,57 +202,29 @@ def _page_count(pdf: Path) -> int | None:
 # Step 4 — Run the pipeline
 # ---------------------------------------------------------------------------
 
-# Matches \documentclass[options]{class} — used by _build_minimal_preamble.
-_DOCCLASS_RE = _re.compile(r'\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}')
+def _run_pipeline(raw_data_dir: Path, run_dir: Path,
+                  mode: str = 'raw') -> dict:
+    """Run the texphage pipeline on *raw_data_dir*.
 
-# Matches \usepackage[options]{pkgs}, \RequirePackage[options]{pkgs},
-# \usetikzlibrary{libs}, \usepgflibrary{libs} — all package-loading commands.
-_USEPACKAGE_RE = _re.compile(
-    r'\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]+\}'
-    r'|\\use(?:tikz|pgf)library\s*\{[^}]+\}'
-)
+    Args:
+        raw_data_dir: Extracted arXiv source directory.
+        run_dir:      Per-paper output directory (logs, tex, report written here).
+        mode:         ``'raw'``       — build canonical_tex manually, write to
+                                        raw_data_dir/pipeline_output.tex, compile
+                                        from raw_data_dir (all attachments in place).
+                      ``'canonical'`` — call texphage_to_dir(), which copies all
+                                        attachments into a self-contained subdirectory
+                                        run_dir/canonical_output/ and rewrites paths.
+                                        Compiles from that directory.
 
-
-def _build_minimal_preamble(raw_tex: str) -> str:
-    """Return a minimal LaTeX preamble from a raw TeX string.
-
-    Extracts \\documentclass and all \\usepackage / \\RequirePackage /
-    \\usetikzlibrary calls (preserving options and order) from the raw
-    preamble.  The result contains no custom macro definitions — only the
-    package-loading commands needed to compile the document.
-
-    This is the correct way to reconstruct a compilable document from
-    demacro() output:
-
-        minimal_preamble = _build_minimal_preamble(tex)
-        expanded_body, _, _ = demacro(tex)
-        pipeline_tex = (
-            minimal_preamble
-            + '\\n\\\\begin{document}\\n'
-            + expanded_body
-            + '\\n\\\\end{document}\\n'
-        )
-
-    The resulting document has the same PDF output as the original but
-    has no custom macros in its preamble — the goal of texphage.
+    Returns:
+        Report dict with 'packages', 'problematic_macros', and (in canonical
+        mode) 'canonical_output_dir'.
     """
-    # Work on the raw preamble only (text before \begin{document}).
-    begin_doc = raw_tex.find(r'\begin{document}')
-    raw_preamble = raw_tex[:begin_doc] if begin_doc != -1 else raw_tex
-
-    docclass_m = _DOCCLASS_RE.search(raw_preamble)
-    docclass = docclass_m.group(0) if docclass_m else r'\documentclass{article}'
-
-    pkg_calls = _USEPACKAGE_RE.findall(raw_preamble)
-
-    return docclass + '\n' + '\n'.join(pkg_calls)
-
-
-def _run_pipeline(raw_data_dir: Path, run_dir: Path) -> dict:
-    """Unfold and demacro. Saves pipeline_output.tex and demacro_report.json."""
     import logging as _logging
 
     from texphage.demacro import demacro
+    from texphage.pipeline import build_minimal_preamble, texphage_to_dir
     from texphage.unfold import unfold
 
     log_path = run_dir / 'pipeline.log'
@@ -244,14 +233,6 @@ def _run_pipeline(raw_data_dir: Path, run_dir: Path) -> dict:
     tex = unfold(raw_data_dir)
     expanded_tex, packages, problems = demacro(tex)
 
-    # Goal (see README.md): replace the full preamble with just \documentclass
-    # + \usepackage calls, and replace the body with the demacro'ed (macro-free)
-    # body.  The resulting PDF must be identical to the baseline.
-    minimal_preamble = _build_minimal_preamble(tex)
-    pipeline_tex = (
-        minimal_preamble + '\n\\begin{document}\n' + expanded_tex + '\n\\end{document}\n'
-    )
-    (run_dir / 'pipeline_output.tex').write_text(pipeline_tex)
     report = {
         'packages': packages,
         'problematic_macros': [
@@ -259,6 +240,24 @@ def _run_pipeline(raw_data_dir: Path, run_dir: Path) -> dict:
             for name, pos, reason in problems
         ],
     }
+
+    if mode == 'canonical':
+        canonical_output_dir = run_dir / 'canonical_output'
+        texphage_to_dir(raw_data_dir, canonical_output_dir)
+        report['canonical_output_dir'] = str(canonical_output_dir)
+    else:
+        canonical_tex = (
+            build_minimal_preamble(tex)
+            + '\n\\begin{document}\n'
+            + expanded_tex
+            + '\n\\end{document}\n'
+        )
+        # Write to run_dir for archiving, and to raw_data_dir for compilation.
+        # Compiling from raw_data_dir ensures that relative paths to .bib files,
+        # images, etc. resolve correctly (BUG-7).
+        (run_dir / 'pipeline_output.tex').write_text(canonical_tex)
+        (raw_data_dir / 'pipeline_output.tex').write_text(canonical_tex)
+
     (run_dir / 'demacro_report.json').write_text(
         json.dumps(report, indent=2, ensure_ascii=False)
     )
@@ -466,8 +465,14 @@ def cleanup_run(id_run_dir: Path) -> None:
 # Main driver
 # ---------------------------------------------------------------------------
 
-def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
-    """Run the full testing agent. Returns the manifest dict."""
+def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
+        keep_runs: bool = False, pipeline_mode: str = 'raw') -> dict:
+    """Run the full testing agent. Returns the manifest dict.
+
+    Args:
+        pipeline_mode: ``'raw'`` (default) or ``'canonical'``.  See
+                       :func:`_run_pipeline` for details.
+    """
     _acquire_lock()
     try:
         run_id = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S') + f'_{seed}'
@@ -483,6 +488,7 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
         manifest: dict = {
             'run_id': run_id,
             'seed': seed,
+            'pipeline_mode': pipeline_mode,
             'papers': [],
         }
 
@@ -526,7 +532,7 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
 
             # Step 4 — Run pipeline
             try:
-                _run_pipeline(raw_data, paper_dir)
+                _run_pipeline(raw_data, paper_dir, mode=pipeline_mode)
             except Exception as e:
                 logger.error("%s: pipeline failed: %s", arxiv_id, e, exc_info=True)
                 results_summary.append({
@@ -534,10 +540,22 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
                 })
                 continue
 
-            # Step 5 — Compile pipeline output
+            # Step 5 — Compile pipeline output.
+            # raw mode:       compile pipeline_output.tex from raw_data so that
+            #                 .bib / image paths resolve (BUG-7).
+            # canonical mode: compile canonical.tex from the self-contained
+            #                 canonical_output/ directory created by texphage_to_dir.
             output_pdf = paper_dir / 'pipeline_output.pdf'
             output_log = paper_dir / 'output_compile.log'
-            output_compile = _compile_latex(paper_dir, output_pdf, output_log)
+            if pipeline_mode == 'canonical':
+                output_compile = _compile_latex(
+                    paper_dir / 'canonical_output', output_pdf, output_log,
+                    tex_file='canonical.tex',
+                )
+            else:
+                output_compile = _compile_latex(
+                    raw_data, output_pdf, output_log, tex_file='pipeline_output.tex'
+                )
 
             # Step 6 — Compare
             comp = _compare(
@@ -577,8 +595,12 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5) -> dict:
         print(f"  MEDIUM:   {severities.count('MEDIUM')}")
         print(f"  LOW:      {severities.count('LOW')}")
         print(f"  OK:       {severities.count('OK')}")
-        print(f"\nResults written to: {run_dir}")
-        print("Review comparison.json and visual_diff/ for each paper.")
+        if keep_runs:
+            print(f"\nResults written to: {run_dir}")
+            print("Review comparison.json and visual_diff/ for each paper.")
+        else:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            print("\n(Run directory deleted — use --keep-runs to preserve for debugging.)")
         print("Add bugs to BUGS.md (see AGENTS.md Step 8).")
 
         return manifest
@@ -597,12 +619,21 @@ def main() -> None:
                        help='Specific arXiv IDs to test instead of sampling')
     parser.add_argument('--n', type=int, default=5,
                         help='Number of papers to sample (default: 5)')
+    parser.add_argument('--keep-runs', action='store_true',
+                        help='Keep run directory after completion (default: delete)')
+    parser.add_argument('--pipeline', choices=['raw', 'canonical'], default='raw',
+                        help=(
+                            'raw (default): compile pipeline_output.tex from raw_data; '
+                            'canonical: use texphage_to_dir — creates a self-contained '
+                            'canonical_output/ directory with attachments copied in'
+                        ))
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 
-    run(arxiv_ids=args.ids, seed=args.seed or 0, n=args.n)
+    run(arxiv_ids=args.ids, seed=args.seed or 0, n=args.n,
+        keep_runs=args.keep_runs, pipeline_mode=args.pipeline)
 
 
 if __name__ == '__main__':

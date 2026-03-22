@@ -121,11 +121,19 @@ strictly for tracking regressions where the pipeline's output is incorrect.
 
 ### When to run
 The user says: `"Run testing agent"`, `"Run testing agent on seed 42"`,
-or `"Run testing agent on IDs 2401.12345 2312.09876"`.
+`"Run testing agent on IDs 2401.12345 2312.09876"`, or
+`"Run tests on arXiv papers with refactored directories"` (canonical mode).
 
 **Before downloading anything, ask the user:**
 `"Should I download 5 new arXiv papers (may take several minutes), or use
 specific IDs? What seed or IDs should I use?"`
+
+**Pipeline modes** (pass `--pipeline` to `test_fidelity.py`):
+- `raw` (default): compile `pipeline_output.tex` from `raw_data/` — attachments
+  resolve via their original relative paths.
+- `canonical`: call `texphage_to_dir()` — creates a self-contained
+  `canonical_output/` directory with all attachments copied into `unalienable/`
+  and paths rewritten.  Triggered by `"run tests … with refactored directories"`.
 
 Only proceed with downloads if the user confirms. This prevents accidental
 network usage and gives the user control over which papers are tested.
@@ -159,16 +167,16 @@ subprocess.run(
 ### Step 4 — Run the pipeline
 
 ```python
+from texphage.pipeline import build_minimal_preamble
 from texphage.unfold import unfold
 from texphage.demacro import demacro
-from scripts.test_fidelity import _build_minimal_preamble
 
 tex = unfold(raw_data_dir)
 expanded_tex, packages, problems = demacro(tex)
 
 # Goal (see README.md): \documentclass + \usepackage calls only (no macro
 # definitions) + 1-line demacro'ed body. Do NOT keep the full preamble.
-minimal_preamble = _build_minimal_preamble(tex)
+minimal_preamble = build_minimal_preamble(tex)
 pipeline_tex = (
     minimal_preamble + '\n\\begin{document}\n'
     + expanded_tex + '\n\\end{document}\n'
@@ -332,9 +340,12 @@ Commit: `test: run <run_id>, N new bugs, M updated`
 
 ### Step 9 — Cleanup
 
-Delete intermediate build artefacts; keep `baseline.pdf`, `pipeline_output.tex`,
-`pipeline_output.pdf`, `demacro_report.json`, `pipeline.log`,
-`baseline_compile.log`, `output_compile.log`, `comparison.json`, `visual_diff/`.
+**Delete the entire run directory** (`shutil.rmtree(run_dir)`).  All scores are
+already printed to the console and written to `manifest.json` before deletion.
+arXiv tarballs and compiled PDFs are large; do not let them accumulate.
+
+To keep the run directory for debugging (SSIM diffs, compile logs, etc.), pass
+`--keep-runs` to `test_fidelity.py`.  Never commit `tests/runs/`.
 
 ### Step 10 — Release lock
 
@@ -781,19 +792,18 @@ tests/
   runs/
     .agent.lock                          ← lock file; deleted after each run
     <run_id>/                            ← YYYYMMDD_HHMMSS_<seed>
-      manifest.json
-      <arxiv_id>/
-        raw_data/                        ← DELETED by cleanup (Step 9)
-        baseline.pdf                     ← kept
-        pipeline_output.tex              ← kept
-        pipeline_output.pdf              ← kept
-        demacro_report.json              ← kept (enriched with definition_pattern + context)
-        pipeline.log                     ← kept
-        baseline_compile.log             ← kept
-        output_compile.log               ← kept
-        comparison.json                  ← kept
+      manifest.json                      ← DELETED by default cleanup (Step 9)
+      <arxiv_id>/                        ← DELETED by default cleanup (Step 9)
+        raw_data/
+        baseline.pdf
+        pipeline_output.tex
+        pipeline_output.pdf
+        demacro_report.json
+        pipeline.log
+        baseline_compile.log
+        output_compile.log
+        comparison.json
         visual_diff/
-          page_N_diff.png                ← kept for pages with SSIM < 0.95
 
 tests/fixtures/                          ← COMMITTED; every reproduction lives here
   nested_input/
@@ -802,6 +812,8 @@ tests/fixtures/                          ← COMMITTED; every reproduction lives
   audit_<pattern_name>/                  ← added by quarterly audit
 ```
 
+**Default:** entire `<run_id>/` directory is deleted after the run (Step 9).
+Use `--keep-runs` to preserve it for debugging.
 `tests/runs/` is in `.gitignore` — never committed.
 `tests/fixtures/` is committed — the test suite must never depend on external data.
 
@@ -854,3 +866,17 @@ pdfinfo      — poppler-utils; for page count
 texdef       — texlive-extra-utils or MacTeX; for macro introspection
 pdftotext    — poppler-utils; used by latex_playground.py for text extraction
 ```
+
+---
+
+## Testing History
+
+Seeds select different random shuffles of recent arXiv papers in the sampled
+categories (`math.CT`, `math.AT`, `cs.LO`).  Each seed gives a reproducible
+but distinct paper set.  **Do not reuse a seed** — the goal is broad coverage.
+
+| Date       | Seed | Papers tested | New bugs |
+|------------|------|---------------|----------|
+| 2026-03-21 |   42 | 4             | BUG-3, BUG-4, BUG-5, BUG-6 |
+| 2026-03-21 |    0 | (re-run, infra debugging) | — |
+| 2026-03-22 |    7 | 4             | BUG-7 (fixed), BUG-8, BUG-9 |

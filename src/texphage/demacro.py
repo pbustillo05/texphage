@@ -330,6 +330,11 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
     # [^\n]* consumes rest of line, preserving the newline for Step 3.
     tex = re.sub(r'(?<!\\)%[^\n]*', '', tex)
 
+    # Step 2b: Strip block comment environments (comment package).
+    # \begin{comment}...\end{comment} produces no output; discard entirely.
+    # re.DOTALL needed because block comments span multiple lines.
+    tex = re.sub(r'\\begin\{comment\}.*?\\end\{comment\}', '', tex, flags=re.DOTALL)
+
     # Step 3: Preserve paragraph breaks BEFORE collapsing whitespace.
     # \n[ \t]*\n+ = one or more blank lines.
     # MUST run before Step 4, or blank lines collapse to spaces.
@@ -458,11 +463,24 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
                 if macro.group('new_com_default1'):
                     i += 1
                     pattern += r' ?' + embed_braces('arg1')
-                    default_dict['1'] = macro.group('new_com_default1')
+                    raw1 = macro.group('new_com_default1')
+                    if macro.group('new_com_xargs') and raw1:
+                        # xargs [i=val] syntax: strip leading "i=" position prefix
+                        inner = raw1[1:-1]
+                        m2 = re.match(r'^\d+=', inner)
+                        if m2:
+                            raw1 = '[' + inner[m2.end():] + ']'
+                    default_dict['1'] = raw1
                 if macro.group('new_com_default2'):
                     i += 1
                     pattern += r' ?' + embed_braces('arg2')
-                    default_dict['2'] = macro.group('new_com_default2')
+                    raw2 = macro.group('new_com_default2')
+                    if macro.group('new_com_xargs') and raw2:
+                        inner = raw2[1:-1]
+                        m2 = re.match(r'^\d+=', inner)
+                        if m2:
+                            raw2 = '[' + inner[m2.end():] + ']'
+                    default_dict['2'] = raw2
                 while i < num_args:
                     i+=1
                     pattern += r' ?(?<%s>%s)' %('arg' + str(i), token('bracket_arg' + str(i)))

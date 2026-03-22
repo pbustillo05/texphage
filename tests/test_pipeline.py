@@ -28,7 +28,7 @@ def doc(preamble: str, body: str) -> str:
 
 def test_build_minimal_preamble_BUG3():
     """BUG-3: pipeline must emit \\documentclass + \\usepackage only, no macro defs."""
-    from test_fidelity import _build_minimal_preamble
+    from texphage.pipeline import build_minimal_preamble as _build_minimal_preamble
 
     raw_tex = doc(
         r'\usepackage{amsmath}' + '\n'

@@ -12,138 +12,83 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 
 ## Proposed
 
-*   **[ENHANCEMENT] Truly minimal `\usepackage` list in `_build_minimal_preamble`**
+*   **[ENHANCEMENT] Truly minimal `\usepackage` list in `build_minimal_preamble` — Phase 2 (beta pruning)**
 
-    **Motivation.** `_build_minimal_preamble()` currently copies all `\usepackage`
-    commands verbatim from the original preamble.  This is correct but not minimal:
-    many packages load each other internally, so several of those `\usepackage` calls
-    are redundant — the package would have been loaded anyway as a transitive
-    dependency of another one.  The goal is to emit only the subset of `\usepackage`
-    calls that are truly "roots" of the dependency tree.
+    Phase 1 (unify parsing with `find_packages.py`, preserve options+order) is **Done** — see Done section.
 
-    **Data already available.** `find_packages.py` already builds and caches the
-    full transitive closure for each package via `get_dependencies(pkg)` (stored
-    in `cache/texlive_dependencies.json` — note: JSON, not pickle).  Calling
-    `get_dependencies('amsmath')` returns `['amsmath', 'amstext', 'amsgen', ...]`.
+    **Motivation.** `build_minimal_preamble()` emits the author's explicit `\usepackage`
+    calls verbatim (correct, same options, same order).  But it is not minimal: many
+    packages load each other internally, so several calls are redundant — the package
+    would be loaded anyway as a transitive dependency.  The goal of Phase 2 is to emit
+    only the "root" subset.
 
-    **Three sub-problems to solve:**
+    **Data already available.** `find_packages.py` caches the full transitive closure per
+    package in `cache/texlive_dependencies.json` via `get_dependencies(pkg)`.
+    `find_explicit_package_calls(preamble)` (added in Phase 1) returns structured
+    `PackageCall` objects with `names` and `options` already parsed.
 
     ---
 
     **Sub-problem 1 — Redundancy pruning.**
 
-    Given the author's explicit package list `roots = [A, B, C, ...]` (in preamble
-    order), a package `P` is redundant if it appears in the transitive closure of
-    any other root `Q` (i.e. `P in get_dependencies(Q) and P != Q`).
-
-    Algorithm:
+    Given the author's explicit list `roots = [A, B, C, ...]`, a package `P` is
+    redundant if it appears in the transitive closure of any other root `Q`
+    (`P in get_dependencies(Q) and P != Q`).
 
     ```python
     def _minimal_roots(explicit_pkgs: list[str]) -> list[str]:
-        # explicit_pkgs: package names in preamble order, one entry per \usepackage call.
-        # Does not need to handle options — only names.
         from texphage.find_packages import get_dependencies
         result = []
         for pkg in explicit_pkgs:
-            covered_by_other = any(
+            if not any(
                 pkg in get_dependencies(other) and other != pkg
-                for other in explicit_pkgs
-                if other != pkg
-            )
-            if not covered_by_other:
+                for other in explicit_pkgs if other != pkg
+            ):
                 result.append(pkg)
-        return result  # preserves original order
+        return result  # preserves preamble order
     ```
 
-    Note: `get_dependencies` may return `[pkg]` for unknown packages (e.g. custom
-    `.sty` files not in TeX Live).  That is safe — the package won't appear in
-    anyone's transitive closure, so it will always be kept.
-
-    Also note: `\usepackage{A,B,C}` loads A, B, C independently.  The regex
-    `_USEPACKAGE_RE` captures the whole call including the comma-list; we need to
-    split on commas to get individual names before passing to `_minimal_roots`.
+    Note: `\usepackage{A,B}` loads A and B independently — use `PackageCall.names`
+    (already split) when calling `_minimal_roots`.
 
     ---
 
     **Sub-problem 2 — Preserving options for pruned packages.**
 
-    If the author wrote `\usepackage[utf8]{inputenc}` and `inputenc` is a
-    transitive dep of some other kept package `X`, we cannot simply drop the call:
-    the options would be lost and `inputenc` would be loaded without `[utf8]`.
-
-    LaTeX's mechanism for this is `\PassOptionsToPackage{utf8}{inputenc}`, which
-    must appear *before* the package (or any package that loads it) is first
-    loaded.
-
-    Strategy:
-
-    1.  For each pruned package `P` that had options, emit
-        `\PassOptionsToPackage{<options>}{P}` at the very top of the
-        generated preamble (before any `\usepackage`).
-    2.  For each pruned package `P` that had *no* options, drop it silently.
-
-    Edge case: if the author loaded the same package with different options in
-    multiple `\usepackage` calls (unusual but legal via `\usepackage` splitting),
-    collect all option sets and emit one `\PassOptionsToPackage` per option set.
+    If `\usepackage[utf8]{inputenc}` is pruned (because some kept package loads it
+    transitively), the options would be silently lost.  Fix: emit
+    `\PassOptionsToPackage{utf8}{inputenc}` before all `\usepackage` calls for every
+    pruned package that had non-empty options.
 
     ---
 
     **Sub-problem 3 — Order sensitivity.**
 
-    Some packages are order-sensitive (canonical example: `hyperref` must be
-    loaded last; `babel` interacts with many packages that must be loaded after
-    it).  The correct strategy is:
-
-    1.  Preserve the original relative order of all kept packages.
-    2.  Emit `\PassOptionsToPackage` calls before all `\usepackage` calls.
-    3.  Use the testing framework (SSIM + text diff) to detect any remaining
-        order-induced regressions — do **not** try to hard-code ordering rules.
-
-    There is no known static analysis for ordering constraints; empirical testing
-    on arXiv papers is the right verification method.
+    Preserve the original relative order of kept packages.  Emit `\PassOptionsToPackage`
+    calls first.  Use the fidelity test suite (SSIM + text diff) to catch
+    order-induced regressions — do **not** hard-code ordering rules.
 
     ---
 
-    **Coding strategy (step-by-step).**
+    **Coding strategy.**
 
-    1.  **Extend `_USEPACKAGE_RE` parsing.**  The current regex captures the full
-        `\usepackage[opts]{pkgs}` string.  Add a second pass to split each match
-        into `(options_str | None, [pkg1, pkg2, ...])` tuples, so options and
-        package names are available separately.
+    1.  Implement `_minimal_roots` and unit-test it (mock `get_dependencies` to avoid
+        network/disk calls in CI).
+    2.  Implement `\PassOptionsToPackage` emission for pruned-but-optioned packages;
+        unit-test options survive pruning.
+    3.  Add `build_minimal_preamble_beta(raw_tex)` in `pipeline.py` that calls
+        parse → prune → emit PassOptions → emit minimal `\usepackage` list.
+    4.  Fidelity-test on a fixed seed; accept MEDIUM regressions from layout reflow,
+        reject CRITICAL/HIGH as blockers.
 
-    2.  **Implement `_minimal_roots`** (algorithm above) and unit-test it in
-        `test_pipeline.py` with hand-crafted transitive-dep scenarios (mock
-        `get_dependencies` if needed to avoid network calls).
+    **Known risks.**
 
-    3.  **Implement `\PassOptionsToPackage` emission** for pruned packages that
-        had options.  Unit-test that options survive pruning.
-
-    4.  **Rebuild `_build_minimal_preamble`** to call these helpers in order:
-        parse → prune → emit `\PassOptionsToPackage` → emit minimal `\usepackage` list.
-
-    5.  **Integration test with `latex_playground.py`.**  For each arXiv paper in
-        `tests/runs/` (or a small hand-picked set), compile `_build_minimal_preamble`
-        output and verify it compiles without errors.  A paper failing to compile
-        here reveals either a pruning error or a missing ordering rule.
-
-    6.  **End-to-end fidelity test.**  Run the testing agent (`test_fidelity.py`)
-        on a fixed seed and verify SSIM and text-diff scores do not regress
-        relative to the current baseline (full preamble copy).  Accept MEDIUM-or-lower
-        regressions from layout reflow; reject any compilation failure or HIGH
-        regression as a blocker.
-
-    **Known risks / open questions.**
-
-    -   `get_dependencies` shells out to `kpsewhich` for unknown packages and reads
-        `.sty` files.  Calling it for every package in every paper during test runs
-        may be slow; the JSON cache mitigates this after the first run.
-    -   Custom `.sty` files bundled inside arXiv tarballs are not in TeX Live and
-        will not appear in `texlive_dependencies.json`.  They should never be pruned
-        (they appear in no one's transitive closure) — the algorithm above handles
-        this correctly by construction.
-    -   Package option conflicts (two kept packages both loading `inputenc` with
-        different options) are a LaTeX-level error independent of our pruning;
-        we inherit whatever the author's original preamble would have produced.
+    -   `get_dependencies` shells out to `kpsewhich` on first call; JSON cache
+        mitigates cost after first run.
+    -   Custom `.sty` files bundled in arXiv tarballs are not in TeX Live and will
+        never be pruned (they appear in no transitive closure) — safe by construction.
+    -   Package option conflicts are a LaTeX-level error inherited from the original
+        preamble; our pruning does not introduce new conflicts.
 
 *   **[ENHANCEMENT] `pgfkeys` Support:** Add parsing support for `\pgfkeys` and `\tikzset`, which are used extensively in TikZ and other packages for key-value options. This is a major undertaking.
 *   **[ENHANCEMENT] Conditional Support:** Add basic support for TeX conditionals like `\if...`, `\ifx...`, especially for handling starred versions of commands/environments where the logic is often `\newif\if@star ... \@ifstar{\@startrue...}{\@starfalse...}`.
@@ -155,4 +100,12 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 ## In Progress
 
 ## Done
+
+*   **[ENHANCEMENT] `build_minimal_preamble` Phase 1 — unify parsing with `find_packages.py`**
+
+    Added `PackageCall` dataclass and `find_explicit_package_calls(preamble)` to
+    `find_packages.py`.  `build_minimal_preamble` now uses these instead of its own
+    duplicated `_USEPACKAGE_RE` regex.  Result is functionally identical to before
+    (same `\usepackage` calls, same options, same order) but parsing is unified and
+    structured data (`names`, `options`) is available for Phase 2 pruning.
 

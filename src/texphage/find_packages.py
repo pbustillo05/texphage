@@ -8,6 +8,7 @@ import atexit
 import json
 import logging
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import regex as re
@@ -25,6 +26,68 @@ find_pkg_lib = re.compile(
     r'|\\use(?<type>tikz|pgf)library\s*\{(?<libraries>(?:[a-z0-9\+\-\.]+| |,)+)\})' % embed_braces('options'),
     flags=re.MULTILINE,
 )
+
+# ---------------------------------------------------------------------------
+# PackageCall — structured representation of one \usepackage call
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PackageCall:
+    """One \\usepackage (or \\usetikzlibrary / \\usepgflibrary) call from a preamble.
+
+    Attributes:
+        names:      Package or library names, e.g. ``['amsmath']`` or
+                    ``['amsmath', 'amsthm']`` for a comma-list call.
+        options:    Options string *without* surrounding brackets, e.g. ``'utf8'``.
+                    Empty string when no options were given.
+        is_tikzlib: True for ``\\usetikzlibrary`` / ``\\usepgflibrary`` calls.
+        lib_type:   ``'tikz'`` or ``'pgf'`` for library calls; ``''`` for packages.
+    """
+    names: list[str]
+    options: str
+    is_tikzlib: bool = False
+    lib_type: str = ''
+
+    @property
+    def verbatim(self) -> str:
+        """Reconstruct a canonical \\usepackage or \\usetikzlibrary call string."""
+        if self.is_tikzlib:
+            return r'\use%slibrary{%s}' % (self.lib_type, ','.join(self.names))
+        opts = ('[%s]' % self.options) if self.options else ''
+        return r'\usepackage%s{%s}' % (opts, ','.join(self.names))
+
+
+def find_explicit_package_calls(preamble: str) -> list[PackageCall]:
+    """Return structured :class:`PackageCall` objects for every ``\\usepackage``
+    and ``\\usetikzlibrary`` found in *preamble*, in document order.
+
+    Only the author's *explicit* calls are returned — transitive dependencies are
+    **not** expanded.  Options and multi-package comma-lists are preserved.
+
+    Args:
+        preamble: The raw LaTeX preamble string (text before ``\\begin{document}``).
+
+    Returns:
+        A list of :class:`PackageCall` objects, one per ``\\usepackage`` /
+        ``\\usetikzlibrary`` line, in the order they appear in *preamble*.
+    """
+    result: list[PackageCall] = []
+    for match in find_pkg_lib.finditer(preamble):
+        opts_raw = match.group('options')          # e.g. '[utf8]' or None
+        options  = opts_raw[1:-1] if opts_raw else ''  # strip surrounding []
+
+        if match.group('packages'):
+            names = [m.group(0) for m in find_file.finditer(match.group('packages'))]
+            if names:
+                result.append(PackageCall(names=names, options=options))
+        elif match.group('libraries'):
+            lib_type = match.group('type')         # 'tikz' or 'pgf'
+            names = [m.group(0) for m in find_file.finditer(match.group('libraries'))]
+            if names:
+                result.append(PackageCall(names=names, options=options,
+                                          is_tikzlib=True, lib_type=lib_type))
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Cache — JSON files under cache/, protected by file locks for concurrent safety
@@ -124,7 +187,7 @@ def get_dependencies(file: str, dependencies: list | None = None) -> list:
                 texlive_dependencies[file] = dependencies
             return dependencies
 
-
+## TODO: Modify `find_used_packages` to also return options passed to packages and libraries, so that we can later use the same options in our minimalist preamble.
 def find_used_packages(tex: str) -> list:
     """Return all packages (and transitive dependencies) used in a LaTeX string."""
     list_packages = []
@@ -206,6 +269,8 @@ def find_command(csname: str, list_packages: list[str]) -> str:
 
 
 __all__ = [
+    "PackageCall",
+    "find_explicit_package_calls",
     "find_used_packages",
     "get_dependencies",
     "find_command",

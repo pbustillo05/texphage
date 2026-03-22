@@ -49,34 +49,34 @@ pip install -e ".[dev,agents]"
 ## Quick start
 
 ```python
-import re
-from texphage.unfold import unfold
-from texphage.demacro import demacro
+from texphage import texphage, texphage_to_dir
 
-# Flatten a multi-file project into one string
-tex = unfold('/path/to/arxiv/source/')
+# --- Option A: get the canonical .tex string and attachment list ---
+# Compile canonical_tex from src_dir so relative image paths resolve.
+canonical_tex, attachments = texphage('/path/to/arxiv/source/')
+# canonical_tex  — the 5-line .tex string (compile from src_dir)
+# attachments    — list of Attachment(tex_ref, src_path) for images, .bib, etc.
 
-# Expand user-defined macros; get back the body only
-expanded_body, packages, problems = demacro(tex)
-
-# Reconstruct a minimal, compilable document:
-#   \documentclass + \usepackage calls (no custom macros) + expanded body
-raw_preamble = tex[:tex.find(r'\begin{document}')]
-docclass = re.search(r'\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}', raw_preamble).group(0)
-pkg_calls = re.findall(
-    r'\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]+\}'
-    r'|\\use(?:tikz|pgf)library\s*\{[^}]+\}',
-    raw_preamble,
+# --- Option B: write everything to a self-contained output directory ---
+canonical_path = texphage_to_dir(
+    src_dir    = '/path/to/arxiv/source/',
+    output_dir = '/path/to/output/',
+    # attachments_subdir='unalienable'  ← default
 )
-output_tex = (
-    docclass + '\n' + '\n'.join(pkg_calls)
-    + '\n\\begin{document}\n' + expanded_body + '\n\\end{document}\n'
-)
+# Writes:
+#   /path/to/output/canonical.tex          ← 5-line canonical document
+#   /path/to/output/unalienable/figures/   ← images, .bib files, etc.
+# Paths inside canonical.tex are rewritten to point into unalienable/.
 ```
 
-`packages` is a list of `\usepackage` names found in the preamble.
-`problems` is a list of `(csname, position, reason)` tuples for macros
-that could not be expanded (self-referential or pattern mismatch).
+For lower-level access (unfold only, demacro only, etc.) the individual
+modules are still importable:
+
+```python
+from texphage.unfold import unfold
+from texphage.demacro import demacro
+from texphage.pipeline import build_minimal_preamble
+```
 
 ---
 
