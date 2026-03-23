@@ -555,5 +555,5 @@ status (OPEN / IN_PROGRESS / FIXED).
   `\includeversion{name}` and append them to the minimal preamble.
 - **first_seen**: 2026-03-23
 - **last_seen**: 2026-03-23
-- **status**: OPEN
+- **status**: IN_PROGRESS
 
