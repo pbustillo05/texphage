@@ -291,33 +291,99 @@ _VERBATIM_PLACEHOLDER = 'texphageVERBATIM{}ENDVERBATIM'
 
 
 def _strip_par_in_groups(tex: str) -> str:
-    """Remove \\par tokens that appear inside brace-delimited groups (depth > 0).
+    r"""Remove \par tokens that appear inside groups where TeX forbids them.
 
-    After whitespace collapse the flat string may contain \\par tokens that
-    arose from blank lines inside command arguments (e.g. \\title{\\par Text}).
-    TeX forbids \\par in most command arguments and raises
-    "Paragraph ended before \\cmd was complete." whenever it appears there.
-    This step removes those spurious \\par tokens while leaving top-level
-    \\par tokens (between paragraphs in the body) intact.
+    After whitespace collapse the flat string may contain \par tokens that
+    arose from blank lines inside command arguments (e.g. \title{\par Text})
+    or inside math display environments (e.g. \begin{gather}...\par...\end{gather}).
+    TeX forbids \par in most command arguments and in all math environments,
+    raising "Paragraph ended before \cmd was complete."
+
+    This function tracks two kinds of nesting:
+    - **brace depth**: incremented by ``{``, decremented by ``}``.
+    - **math-env depth**: incremented by ``\begin{<math_env>}``, decremented
+      by ``\end{<math_env>}``.  Only environments known to forbid \par are
+      counted (see ``_PAR_FORBIDDEN_ENVS``).
+
+    \par is stripped whenever *either* depth is > 0, and preserved at top
+    level (between paragraphs in the document body) and inside non-math
+    environments (itemize, enumerate, center, figure, etc.) where \par is legal.
 
     Called as step 4.5 in preprocessing(), after whitespace collapse.
+
+    LIMITATIONS:
+      [observed] Only a fixed set of math environments is tracked. \par inside
+                 an unknown environment that also forbids it will survive. The
+                 set covers all amsmath display environments, eqnarray, and
+                 base LaTeX math/displaymath. Playground confirms \par is legal
+                 inside itemize, enumerate, center, figure, tabular, minipage.
+      [observed] \begin{document}/\end{document} ARE in the string at this
+                 point (Step 6 splits on them later), but 'document' is not in
+                 _PAR_FORBIDDEN_ENVS so it does not affect math-env depth.
     """
+    # Environments where \par is illegal (all math display environments).
+    # Starred variants (e.g. gather*) are matched by checking the base name.
+    # Sources:
+    #   - amsmath package: gather, align, alignat, flalign, multline, split
+    #   - base LaTeX: equation, eqnarray, math, displaymath
+    _PAR_FORBIDDEN_ENVS = frozenset({
+        'gather', 'align', 'alignat', 'flalign', 'multline', 'split',
+        'equation', 'eqnarray', 'math', 'displaymath',
+    })
+
+    _BEGIN_PREFIX = r'\begin'
+    _END_PREFIX = r'\end'
+
     out: list[str] = []
-    depth = 0
+    brace_depth = 0
+    math_env_depth = 0
     i = 0
     n = len(tex)
     while i < n:
         c = tex[i]
         if c == '\\':
-            # Check for \par at brace depth > 0.
+            # Check for \par when inside any group (brace or math environment).
             # After whitespace collapse \par is always followed by ' ' or end-of-string.
-            if depth > 0 and tex[i:i+4] == r'\par':
+            if (brace_depth > 0 or math_env_depth > 0) and tex[i:i+4] == r'\par':
                 after = tex[i+4] if i + 4 < n else ''
                 if after == ' ' or after == '' or not after.isalpha():
                     i += 4
                     if i < n and tex[i] == ' ':
                         i += 1  # consume the trailing space too
                     continue
+
+            # Check for \begin{envname} → maybe increment math_env_depth.
+            if tex[i:i+6] == _BEGIN_PREFIX:
+                j = i + 6
+                if j < n and tex[j] == ' ':
+                    j += 1
+                if j < n and tex[j] == '{':
+                    # Extract environment name (up to closing }).
+                    k = tex.index('}', j) + 1
+                    env_name = tex[j+1:k-1]  # text between { and }
+                    # Strip trailing * for starred variants (gather* → gather).
+                    base_name = env_name.rstrip('*')
+                    out.append(tex[i:k])
+                    if base_name in _PAR_FORBIDDEN_ENVS:
+                        math_env_depth += 1
+                    i = k
+                    continue
+
+            # Check for \end{envname} → maybe decrement math_env_depth.
+            if tex[i:i+4] == _END_PREFIX:
+                j = i + 4
+                if j < n and tex[j] == ' ':
+                    j += 1
+                if j < n and tex[j] == '{':
+                    k = tex.index('}', j) + 1
+                    env_name = tex[j+1:k-1]
+                    base_name = env_name.rstrip('*')
+                    out.append(tex[i:k])
+                    if base_name in _PAR_FORBIDDEN_ENVS and math_env_depth > 0:
+                        math_env_depth -= 1
+                    i = k
+                    continue
+
             # Copy the control sequence verbatim (so { } inside \{...\} aren't counted).
             out.append(c)
             i += 1
@@ -329,11 +395,11 @@ def _strip_par_in_groups(tex: str) -> str:
                 out.append(tex[i])
                 i += 1
         elif c == '{':
-            depth += 1
+            brace_depth += 1
             out.append(c)
             i += 1
         elif c == '}':
-            depth = max(0, depth - 1)
+            brace_depth = max(0, brace_depth - 1)
             out.append(c)
             i += 1
         else:
