@@ -264,12 +264,11 @@ status (OPEN / IN_PROGRESS / FIXED).
   ```
   Pipeline produces `\R` unexpanded in body (pattern_mismatch), causing
   `Undefined control sequence \R` at compile.
-- **fix**: In `build_dictionary()`, strip whitespace from `def_pattern` and `edef_pattern`
-  before passing to `_def_param_pattern`. Alternatively, strip inside `_def_param_pattern`
-  itself. The stripped string `''` produces the correct empty pattern for zero-arg macros.
+- **fix**: In `build_dictionary()`, call `.strip()` on `def_pattern`/`edef_pattern` before
+  passing to `_def_param_pattern`. The trailing space `' '` → `''` → correct zero-arg pattern.
 - **first_seen**: 2026-03-23
-- **last_seen**: 2026-03-23
-- **status**: OPEN
+- **fixed**: 2026-03-23
+- **status**: FIXED
 
 ---
 
@@ -302,14 +301,12 @@ status (OPEN / IN_PROGRESS / FIXED).
   ```
   After `build_minimal_preamble`, `\newtheorem` is gone → compile error
   `Environment thm undefined`.
-- **fix**: Add `\newtheorem` (and `\newtheorem*`) calls to the set of preamble lines
-  preserved by `build_minimal_preamble`. A `_NEWTHEOREM_RE` pattern matching
-  `\newtheorem{name}{print-name}[optional-counter]` and
-  `\newtheorem*{name}{print-name}` should be added to the scan and its matches
-  appended after the package lines.
+- **fix**: Added `_NEWTHEOREM_RE` to `pipeline.py` that matches `\newtheorem` and
+  `\newtheorem*` (with both before/after counter variants) and appends them to the
+  minimal preamble after package lines.
 - **first_seen**: 2026-03-23
-- **last_seen**: 2026-03-23
-- **status**: OPEN
+- **fixed**: 2026-03-23
+- **status**: FIXED
 
 ---
 
@@ -318,7 +315,7 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **severity**: CRITICAL
 - **root_cause_pattern**: `preprocessing()` in `src/texphage/demacro.py` — step 4 (whitespace collapse)
 - **failure_mode**: C
-- **seen_in**: [2602.08480] — 2,894-line source collapsed to single 218,126-character line
+- **seen_in**: [2602.08480, 2601.15832] — 2,894-line and 3,609-line sources each collapse to a single line exceeding 200k chars
 - **description**: Step 4 of `preprocessing()` collapses all whitespace (spaces, tabs,
   newlines) into single spaces, turning the entire document body into essentially one
   very long line. TeX's internal buffer (`bufsize`) defaults to 200,000 characters per
@@ -333,11 +330,81 @@ status (OPEN / IN_PROGRESS / FIXED).
   reads one line at a time; `bufsize` is the maximum characters per line.
 - **reproduction**: Any paper whose body exceeds 200,000 characters when collapsed to a
   single line. 2602.08480 (`Greg-MFO-notes3.tex`, 2,894 lines) is a confirmed case.
-- **fix**: After demacro expansion, insert `\n` line breaks at `\par` boundaries in the
-  output before writing `pipeline_output.tex`. The `\par` tokens in the expanded body
-  represent paragraph boundaries — replacing them with `\n\n` would restore newlines
-  without disrupting any regex patterns (the expansion is already complete at that point).
-  Alternatively, insert `\n` after every `\par ` in the final pipeline output string.
+  2601.15832 (3,609 lines, 214,637 chars) also triggers this in seed-2 run.
+- **fix**: In `texphage()` after `demacro()` returns, replace `\par ` with `\par\n` in the
+  expanded body. This restores per-paragraph line breaks in the final output without
+  affecting regex matching (expansion is already complete). Note: `_run_pipeline()` in
+  `scripts/test_fidelity.py` duplicates the pipeline logic without this fix and must
+  also apply the same transformation to `expanded_tex`.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **fixed**: 2026-03-23
+- **status**: FIXED
+
+---
+
+## BUG-13: `find_main_file()` fails when `\documentclass` lives in an `\input`ted file
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `find_main_file()` in `src/texphage/unfold.py` — `\documentclass`
+  check rejects root files that delegate their preamble to an `\input`ted file
+- **failure_mode**: C
+- **seen_in**: [2601.13325] — `main.tex` contains `\input{misc/preamble}` which holds `\documentclass`
+- **description**: `find_main_file()` rejects a candidate `.tex` file if it does not contain
+  `\documentclass` directly. Some arXiv projects put `\documentclass` in an `\input`ted
+  preamble file (e.g. `\input{misc/preamble}`) rather than in the root file.
+  `find_main_file()` also only reads `00README.XXX` (old arXiv format) but not
+  `00README.json` (new arXiv JSON format, present in papers since ~2025), which explicitly
+  declares the toplevel file. For 2601.13325, the `00README.json` lists `main.tex` as
+  `"usage": "toplevel"` but `find_main_file()` ignores it, falls through to the
+  `\documentclass` check, rejects `main.tex`, and returns `''`. The pipeline then produces
+  an empty body and a 4-line document with no content.
+- **relevant_code_location**: `src/texphage/unfold.py` — `find_main_file()`, lines 87–115;
+  the `\documentclass` check at line 109; the `00README.XXX`-only handler at lines 87–98.
+- **relevant_latex_docs**: https://info.arxiv.org/help/00README
+- **reproduction**:
+  ```
+  tests/fixtures/bug_13_find_main_file_no_docclass/
+    main.tex     — \input{preamble} only, no \documentclass
+    preamble.tex — \documentclass{article}
+  ```
+  `find_main_file('tests/fixtures/bug_13_find_main_file_no_docclass')` returns `''`.
+- **fix**: In `find_main_file()`: (1) read `00README.json` when `00README.XXX` is absent,
+  parsing `sources[].filename` where `usage == "toplevel"`; (2) relax the `\documentclass`
+  check for the preferred canonical names (`main.tex`, `paper.tex`, `article.tex`,
+  `manuscript.tex`) — return the file content without requiring `\documentclass` in it,
+  since these names are trusted root files by convention.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-14: Braceless `\input <pkg>` (plain-TeX style) not handled — package not loaded in pipeline
+
+- **severity**: HIGH
+- **root_cause_pattern**: `_FIND_INPUT` pattern in `src/texphage/unfold.py` — only matches
+  `\input{path}` with braces, not `\input path` without braces
+- **failure_mode**: C
+- **seen_in**: [2601.03180] — `\input xy` loads xypic; `\xymatrix` used in body but
+  `\usepackage{xy}` never produced in the minimal preamble
+- **description**: Plain TeX uses `\input filename` (no braces) to load a file. `unfold.py`'s
+  `_FIND_INPUT` pattern requires `\input{...}` with braces, so `\input xy` (line 81 of
+  `strong-final.tex`) passes through unresolved. The `find_explicit_package_calls` function
+  in `find_packages.py` also doesn't recognise braceless `\input` calls, so no
+  `\usepackage{xy}` is emitted in the minimal preamble. The body uses `\xymatrix` which is
+  undefined, causing `! Undefined control sequence`. The baseline compiles fine because it
+  processes the original source where `\input xy` loads xy before the document begins.
+- **relevant_code_location**: `src/texphage/unfold.py` — `_FIND_INPUT` regex (line 58);
+  `src/texphage/find_packages.py` — `find_explicit_package_calls`.
+- **relevant_latex_docs**: TeXbook Ch.11 — `\input`; https://ctan.org/pkg/xypic
+- **reproduction**: `tests/fixtures/bug_14_braceless_input/main.tex` — `\input xy` without
+  braces; after pipeline, `\xymatrix` is undefined in pipeline output.
+- **fix**: Extend `_FIND_INPUT` to match braceless `\input <word>` (where `<word>` is a
+  single token with no whitespace). Since braceless `\input` is plain-TeX style and
+  typically loads a package or a single file, it should be treated as `\input{<word>}`.
+  Alternatively, in `build_minimal_preamble`, detect unresolved `\input <pkg>` calls that
+  correspond to known packages and emit `\usepackage{<pkg>}` for them.
 - **first_seen**: 2026-03-23
 - **last_seen**: 2026-03-23
 - **status**: OPEN

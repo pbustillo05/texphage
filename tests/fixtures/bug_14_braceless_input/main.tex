@@ -1,0 +1,8 @@
+% Reproduces BUG-14: \input without braces (plain TeX style)
+% \input xy loads the xy package (xypic); braceless form not handled by unfold.py
+\documentclass{article}
+\input xy
+\begin{document}
+% \xymatrix is defined by xy.tex loaded via plain-TeX \input above
+$\xymatrix{ A \ar[r] & B }$
+\end{document}
