@@ -20,15 +20,16 @@ logger = logging.getLogger(__name__)
 # _FIND_INPUT — the single pattern that recognises all supported file-inclusion directives.
 #
 # MATCHES (one named branch per inclusion form):
-#   input     → \input{path}
-#   include   → \include{path}          (.tex auto-appended; body wrapped in \clearpage)
-#   usepkg    → \usepackage{pkg}        (only when inline_local_packages=True)
-#   import_   → \import{dir}{file}      (import pkg; dir is absolute/root-relative)
-#   subimport → \subimport{dir}{file}   (import pkg; dir is relative to current file)
-#   subfile   → \subfile{path} or \subfileinclude{path}   (subfiles pkg; own preamble stripped)
+#   input      → \input{path}
+#   input_bare → \input path  (braceless, plain-TeX style; BUG-14)
+#   include    → \include{path}          (.tex auto-appended; body wrapped in \clearpage)
+#   usepkg     → \usepackage{pkg}        (only when inline_local_packages=True)
+#   import_    → \import{dir}{file}      (import pkg; dir is absolute/root-relative)
+#   subimport  → \subimport{dir}{file}   (import pkg; dir is relative to current file)
+#   subfile    → \subfile{path} or \subfileinclude{path}   (subfiles pkg; own preamble stripped)
 #
 # CAPTURES (named groups):
-#   input_path, include_path, usepkg_path,
+#   input_path, input_bare_path, include_path, usepkg_path,
 #   import_dir, import_file, subimport_dir, subimport_file, subfile_path
 #
 # LIMITATIONS:
@@ -58,12 +59,13 @@ logger = logging.getLogger(__name__)
 _FIND_INPUT = re.compile(r"""
     ^[^%\n]*
     (?:
-        (?P<input>     \\input      \s*\{\s*(?P<input_path>      .*?)\s*\})  |
-        (?P<include>   \\include    \s*\{\s*(?P<include_path>    .*?)\s*\})  |
-        (?P<usepkg>    \\usepackage \s*\{\s*(?P<usepkg_path>     .*?)\s*\})  |
-        (?P<import_>   \\import     \s*\{\s*(?P<import_dir>      .*?)\s*\}\s*\{\s*(?P<import_file>    .*?)\s*\})  |
-        (?P<subimport> \\subimport  \s*\{\s*(?P<subimport_dir>   .*?)\s*\}\s*\{\s*(?P<subimport_file> .*?)\s*\})  |
-        (?P<subfile>   \\subfile(?:include)?\s*\{\s*(?P<subfile_path>.*?)\s*\})
+        (?P<input>      \\input      \s*\{\s*(?P<input_path>      .*?)\s*\})  |
+        (?P<input_bare> \\input      \s+(?P<input_bare_path>[^\s\{\}%]+))     |
+        (?P<include>    \\include    \s*\{\s*(?P<include_path>    .*?)\s*\})  |
+        (?P<usepkg>     \\usepackage \s*\{\s*(?P<usepkg_path>     .*?)\s*\})  |
+        (?P<import_>    \\import     \s*\{\s*(?P<import_dir>      .*?)\s*\}\s*\{\s*(?P<import_file>    .*?)\s*\})  |
+        (?P<subimport>  \\subimport  \s*\{\s*(?P<subimport_dir>   .*?)\s*\}\s*\{\s*(?P<subimport_file> .*?)\s*\})  |
+        (?P<subfile>    \\subfile(?:include)?\s*\{\s*(?P<subfile_path>.*?)\s*\})
     )
 """, re.MULTILINE | re.VERBOSE)
 
@@ -100,10 +102,21 @@ def find_main_file(directory: str | Path) -> str:
     # 2 & 3. Sort for determinism; prefer canonical names.
     all_tex = sorted(glob.glob('*.tex', root_dir=directory))
     preferred = ['main.tex', 'paper.tex', 'article.tex', 'manuscript.tex']
-    ordered = [f for f in preferred if f in all_tex] + \
-              [f for f in all_tex if f not in preferred]
 
-    for filename in ordered:
+    # BUG-13: preferred canonical names are trusted root files even when \documentclass
+    # lives in an \input'd preamble file (some arXiv papers delegate \documentclass to
+    # an \input'd file).  Check preferred names first, unconditionally.  Only fall back
+    # to the \documentclass check for non-preferred files (e.g. a standalone chapter.tex).
+    for filename in preferred:
+        if filename not in all_tex:
+            continue
+        try:
+            return open(os.path.join(directory, filename), encoding='utf-8').read()
+        except Exception as e:
+            logger.warning("Could not read %s: %s", filename, e)
+
+    # No preferred file found; accept any .tex file that contains \documentclass.
+    for filename in sorted(f for f in all_tex if f not in preferred):
         try:
             content = open(os.path.join(directory, filename), encoding='utf-8').read()
             if re.search(r'\\documentclass', content):
@@ -126,7 +139,23 @@ def _make_file_replacement(
         return match.group(0)[:match.start(group) - match.start()]
 
     def replacement(match: re.Match) -> str:
-        if match.group('input'):
+        if match.group('input_bare'):
+            # BUG-14: braceless \input <word> (plain-TeX style) — same resolution as \input{word}
+            path = match.group('input_bare_path')
+            if '.' not in os.path.basename(path):
+                path += '.tex'
+            full = os.path.realpath(os.path.join(directory, path))
+            if full in visited:
+                logger.warning("Circular \\input: %s — leaving unexpanded", path)
+                return match.group(0)
+            try:
+                content = open(full, encoding='utf-8').read()
+            except FileNotFoundError:
+                logger.warning("\\input (braceless) not found: %s", full)
+                return match.group(0)
+            return _prefix(match, 'input_bare') + unfold(os.path.dirname(full), main=content,
+                                                          _visited=visited | {full})
+        elif match.group('input'):
             path = match.group('input_path')
             if '.' not in os.path.basename(path):
                 path += '.tex'

@@ -27,16 +27,16 @@ def test_newcommand_optional_with_default():
     assert 'Hello, Alice!' in expanded
 
 
-@pytest.mark.xfail(
-    reason="\\def delimited patterns: token() matches one token at a time, "
-           "not multi-char sequences like 'Alice' — see BUGS.md"
-)
 def test_def_token_pattern():
-    # TeX primitive: #1 grabs all tokens up to the literal token "and".
-    # This is a TeX (not LaTeX) feature. Ref: TeXbook Ch.20 / texbytopic Ch.10
-    # https://texdoc.org/serve/texbytopic/0
+    # Playground verified: \def\swap#1and#2{#2 and #1} + \swap Alice and Bob
+    # → TeX produces "B and Alice ob"
+    # #1 is delimited by 'and' → captures 'Alice ' (lazy match up to 'and')
+    # #2 is undelimited → captures one token = 'B'; 'ob' is left in the stream
+    # Ref: TeXbook Ch.20; https://texdoc.org/serve/texbytopic/0 Ch.10; BUGS.md BUG-2
     expanded, _, _ = demacro(doc(r'\def\swap#1and#2{#2 and #1}', r'\swap Alice and Bob'))
-    assert 'Bob and Alice' in expanded
+    assert 'B and Alice' in expanded
+    # Pattern must not leave the call unexpanded.
+    assert r'\swap' not in expanded
 
 
 def test_let_alias():
@@ -119,14 +119,75 @@ def test_verbatim_percent_not_treated_as_comment():
     assert '% this is verbatim' in expanded
 
 
-@pytest.mark.xfail(
-    reason="xargs positional key [i=default] syntax not yet implemented — see BUGS.md"
-)
 def test_newcommandx_positional_defaults():
-    # \newcommandx with [i=default] syntax. Docs: https://ctan.org/pkg/xargs
-    # \newcommandx{\greet}[2][1=Hello]{#1, #2!}
-    # \greet{World} → Hello, World!  (arg 1 uses default "Hello")
+    # Playground verified: \newcommandx{\greet}[2][1=Hello]{#1, #2!} + \greet{World}
+    # → TeX produces "Hello, World!" (arg 1 uses default "Hello", arg 2 = "World")
+    # BUG-1 regression: xargs [i=val] positional-key syntax, fixed 2026-03-22.
+    # Docs: https://ctan.org/pkg/xargs
     preamble = r'\newcommandx{\greet}[2][1=Hello]{#1, #2!}'
     expanded, _, _ = demacro(doc(preamble, r'\greet{World}'))
-    # Correct output: arg 1 uses default "Hello" (not "1=Hello"), arg 2 receives "World"
-    assert 'Hello, World!' in expanded and '1=Hello' not in expanded
+    assert 'Hello, World!' in expanded
+    assert '1=Hello' not in expanded
+
+
+def test_def_space_before_brace_BUG10():
+    """BUG-10: \\def \\R {{\\mathbb R}} — space in def_pattern must not require a literal space.
+
+    TeX ignores whitespace between a command name and the opening { of the body.
+    The find_def pattern captures that space into def_pattern, and before the fix
+    _def_param_pattern would emit a required \\ in the call-site regex, so \\R
+    before $ or } would fail to expand.
+
+    Failure mode: B (expansion failure).
+    Ref: BUGS.md BUG-10.
+    """
+    # Space before { in definition — same as \def\R{{\mathbb R}} semantically.
+    expanded, _, problems = demacro(doc(r'\def \R {{\mathbb R}}', r'$f: X \to \R$.'))
+    assert r'\R' not in expanded, f"\\R unexpanded: {expanded!r}"
+    assert not problems, f"unexpected problems: {problems}"
+
+
+def test_preprocessing_no_par_in_braced_args_BUG9():
+    """BUG-9: blank line inside a command argument must NOT become \\par.
+
+    When a comment line is stripped from inside \\title{...}, the remaining
+    blank line was converted to \\par by preprocessing step 3, producing
+    \\title{ \\par My Title} which causes "Paragraph ended before \\title".
+    After the fix, \\par must be absent from the preamble when it only occurs
+    inside braced groups.
+
+    Failure mode: Mode C (preprocessing corruption).
+    Ref: BUGS.md BUG-9.
+    """
+    from texphage.demacro import preprocessing
+
+    # \title{<blank line after comment strip>My Title} is the canonical trigger.
+    raw = (
+        "\\documentclass{article}\n"
+        "\\title{\n"
+        "% a comment\n"
+        "My Paper Title}\n"
+        "\\begin{document}\\maketitle\\end{document}"
+    )
+    preamble, _body, _ = preprocessing(raw)
+    # \par must not appear inside \title{...}
+    assert r'\par' not in preamble, (
+        f"\\par found inside \\title{{}} — preprocessing inserted spurious paragraph break.\n"
+        f"preamble: {preamble!r}"
+    )
+
+
+def test_preprocessing_par_still_preserved_at_top_level_BUG9():
+    """Regression guard: top-level blank lines (between paragraphs) must still become \\par."""
+    from texphage.demacro import preprocessing
+
+    raw = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "First paragraph.\n"
+        "\n"
+        "Second paragraph.\n"
+        "\\end{document}"
+    )
+    _preamble, body, _ = preprocessing(raw)
+    assert r'\par' in body, "Top-level blank line must still produce \\par in body"

@@ -8,7 +8,7 @@ import atexit
 import json
 import logging
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import regex as re

@@ -288,6 +288,58 @@ _VERBATIM_ENVS = re.compile(
 _VERBATIM_PLACEHOLDER = 'texphageVERBATIM{}ENDVERBATIM'
 
 
+def _strip_par_in_groups(tex: str) -> str:
+    """Remove \\par tokens that appear inside brace-delimited groups (depth > 0).
+
+    After whitespace collapse the flat string may contain \\par tokens that
+    arose from blank lines inside command arguments (e.g. \\title{\\par Text}).
+    TeX forbids \\par in most command arguments and raises
+    "Paragraph ended before \\cmd was complete." whenever it appears there.
+    This step removes those spurious \\par tokens while leaving top-level
+    \\par tokens (between paragraphs in the body) intact.
+
+    Called as step 4.5 in preprocessing(), after whitespace collapse.
+    """
+    out: list[str] = []
+    depth = 0
+    i = 0
+    n = len(tex)
+    while i < n:
+        c = tex[i]
+        if c == '\\':
+            # Check for \par at brace depth > 0.
+            # After whitespace collapse \par is always followed by ' ' or end-of-string.
+            if depth > 0 and tex[i:i+4] == r'\par':
+                after = tex[i+4] if i + 4 < n else ''
+                if after == ' ' or after == '' or not after.isalpha():
+                    i += 4
+                    if i < n and tex[i] == ' ':
+                        i += 1  # consume the trailing space too
+                    continue
+            # Copy the control sequence verbatim (so { } inside \{...\} aren't counted).
+            out.append(c)
+            i += 1
+            if i < n and tex[i].isalpha():
+                while i < n and tex[i].isalpha():
+                    out.append(tex[i])
+                    i += 1
+            elif i < n:
+                out.append(tex[i])
+                i += 1
+        elif c == '{':
+            depth += 1
+            out.append(c)
+            i += 1
+        elif c == '}':
+            depth = max(0, depth - 1)
+            out.append(c)
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return ''.join(out)
+
+
 def preprocessing(tex: str) -> tuple[str, str, list]:
     """Normalise a raw LaTeX string for the demacro regex engine.
 
@@ -303,6 +355,10 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
 
     4. Collapse whitespace: reduce all remaining whitespace to single spaces,
        producing the flat string that all downstream regex patterns require.
+
+    4.5. Strip \\par inside brace groups: \\par inside command arguments is
+       illegal in TeX ("Paragraph ended before \\cmd"). It arises when
+       comment stripping (step 2) leaves blank lines inside ``{...}`` args.
 
     5. RESTORE verbatim environments: re-insert the protected blocks.
 
@@ -343,6 +399,10 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
     # Step 4: Collapse all remaining whitespace to exactly one space.
     tex = re.sub(r'[ \t\n]+', ' ', tex)
 
+    # Step 4.5: Remove \par tokens inside brace groups.
+    # Comment stripping can leave blank lines inside {arg} → \par in arg → TeX error.
+    tex = _strip_par_in_groups(tex)
+
     # Step 5: Restore verbatim blocks.
     for key, value in verbatim_store.items():
         tex = tex.replace(key, value)
@@ -357,6 +417,64 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
     return preamble, document, find_used_packages(preamble)
 
 __all__ = ["demacro", "preprocessing", "build_dictionary", "expand"]
+
+
+# MATCHES: the parameter text of a \\def command (the text between the command
+#          name and the opening { of the body), e.g. '#1and#2' or '#1' or ''.
+# CAPTURES:
+#   arg1, arg2, … argN  → the argument values at the call site
+# LIMITATIONS:
+#   [observed] Delimited params use lazy .*? which may over-match when the
+#              delimiter string appears inside a brace group.  Playground
+#              verified for simple alphanumeric delimiters (e.g. 'and').
+#   [inferred] ## (doubled hash = literal #) is not handled.
+#   [inferred] Spaces in delimiters interact with the whitespace-collapse
+#              invariant; single-space delimiters (' ') work but multi-space
+#              delimiters (' \t') do not (they collapse to one space anyway).
+def _def_param_pattern(def_pattern: str) -> str:
+    """Convert a TeX \\def parameter text to a call-site regex fragment.
+
+    Delimited parameters (``#N`` followed by literal text) are matched lazily
+    (``.*?``) so that the capture stops just before the delimiter.  Undelimited
+    parameters (``#N`` with no following literal) are matched by ``token()``,
+    which is exactly one TeX token or braced group — identical to TeX semantics.
+
+    Example::
+
+        '#1and#2'  →  r'(?<arg1>.*?)and(?<arg2><token>)'
+        '#1'       →  r'(?<arg1><token>)'
+        ''         →  r''  (zero-arg \\def)
+    """
+    result = ''
+    i = 0
+    n = len(def_pattern)
+    while i < n:
+        if def_pattern[i] == '#':
+            i += 1
+            if i < n and def_pattern[i].isdigit():
+                digit = def_pattern[i]
+                i += 1
+                # Collect the delimiter: literal text up to next '#' or end.
+                j = i
+                while j < n and def_pattern[j] != '#':
+                    j += 1
+                delimiter = def_pattern[i:j]
+                i = j
+                if delimiter:
+                    # Delimited: skip optional space (TeX ignores spaces before
+                    # delimited args), match lazily, then the (escaped) delimiter.
+                    result += r' ?(?<%s>.*?)' % ('arg' + digit)
+                    result += re.escape(delimiter)
+                else:
+                    # Undelimited: skip optional space (TeX ignores spaces before
+                    # undelimited args), then exactly one TeX token or braced group.
+                    result += r' ?(?<%s>%s)' % ('arg' + digit, token('bracket_arg' + digit))
+            # '##' → literal '#': skip second '#' without emitting a group.
+        else:
+            result += re.escape(def_pattern[i])
+            i += 1
+    return result
+
 
 ###### DICTIONARY BUIDLING
 def _strip_delimiters(s: str | None) -> str:
@@ -429,14 +547,17 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
         # COMMANDS
         if macro.group('def'):
             csname = com_name(macro.group('def_csname'))
-            pattern = (r'\\%s(?![a-zA-Z])' %csname) + re.sub(r'#(\d)', lambda num : r'(?<%s>%s)' %('arg' + num[1], token('bracket_arg'+ num[1])), macro.group('def_pattern'))
+            # .strip(): TeX ignores whitespace between command name and { of body;
+            # def_pattern captures that trailing space — strip it so zero-arg macros
+            # don't require a literal space in the call-site pattern. (BUG-10)
+            pattern = (r'\\%s(?![a-zA-Z])' %csname) + _def_param_pattern(macro.group('def_pattern').strip())
             content = content_replacement(macro.group('def_content'))
             macro_dict[csname] = [pattern, content]
             csname_finder = find_specific_com(csname)
             find_macro += '|' + csname_finder
         elif macro.group('edef'):
             csname = com_name(macro.group('edef_csname'))
-            pattern = (r'\\%s(?![a-zA-Z])' %csname) + re.sub(r'#(\d)', lambda num : r'(?<%s>%s)' %('arg' + num[1], token('bracket_arg'+ num[1])), macro.group('edef_pattern'))
+            pattern = (r'\\%s(?![a-zA-Z])' %csname) + _def_param_pattern(macro.group('edef_pattern').strip())
             #Content needs to be extended first:
             expanded_content, _ = expand(macro.group('edef_content'), macro_dict, find_macro)
             content = content_replacement(expanded_content)

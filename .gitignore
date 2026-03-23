@@ -11,6 +11,8 @@ cache/
 
 # Agent test runs (PDFs, tarballs, logs — can be huge)
 tests/runs/
+# Except the committed testing history log
+!tests/runs/HISTORY.md
 
 # Unfolded tex files saved by extractor.py
 cache/unfolded_tex/

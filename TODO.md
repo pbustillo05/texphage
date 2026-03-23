@@ -12,6 +12,47 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 
 ## Proposed
 
+*   **[INFRASTRUCTURE] RAG pipeline for LaTeX package sources**
+
+    **Motivation:** When the testing-agent or coding-agent encounters an
+    `undefined_control_sequence \foo` from an unrecognised package, the current
+    diagnostic path is texdef → docs (manual lookup). A RAG system would make
+    Mode A failures near-automatic to diagnose:
+
+    1. **Knowledge base:** Scan CTAN for the top N most-used packages. Download
+       their `.sty`/`.cls` sources, chunk by macro definition, store in a vector
+       database.
+    2. **Query on failure:** For `\undefined_control_sequence \foo`, query:
+       "definition, argument spec, and expansion of `\foo` in package `<pkg>`".
+    3. **Retrieval:** The coding-agent gets the actual source of `\foo` as context.
+    4. **Fix generation:** With ground-truth source in context, the agent writes
+       the correct regex branch and test without manual doc lookup.
+
+    **Acceptance criterion:** For a set of 10 Mode A bugs whose macros come from
+    known packages, the agent successfully retrieves the correct definition in
+    at least 8/10 cases without any manual lookup step.
+
+    **Priority:** MEDIUM — significant engineering investment; highest value when
+    the quarterly audit starts finding many Mode A patterns.
+
+*   **[INFRASTRUCTURE] Coverage dashboard**
+
+    **Motivation:** Track pipeline improvement over time. After each quarterly
+    audit, we should be able to see whether coverage has improved.
+
+    **Plan:**
+    1. Create `coverage.json` in the project root with the schema:
+       `{package_name: {total_defs: N, matched_defs: M, pct: F, last_updated: date}}`
+    2. The quarterly-audit agent updates this file after each run.
+    3. A simple `scripts/coverage_report.py` reads it and prints a sorted table.
+
+    **Acceptance criterion:** After a quarterly audit run, `coverage.json` exists
+    and `scripts/coverage_report.py` prints a table showing per-package coverage
+    percentages for the top 50 arXiv math packages.
+
+    **Priority:** LOW — useful for motivation and prioritisation but not urgent
+    while the bug list is long.
+
 *   **[REFACTOR] Create a shared `arxiv_utils` module**
 
     **Motivation:** Logic for downloading and processing arXiv sources is duplicated between `scripts/extractor.py` and `scripts/test_fidelity.py`. This makes maintenance harder and creates an unhealthy dependency where a test script imports from another script.

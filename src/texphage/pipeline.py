@@ -41,13 +41,47 @@ __all__ = [
 
 _DOCCLASS_RE = _re.compile(r'\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}')
 
+# Front-matter commands that must survive preamble stripping.
+# amsart/amsbook put \title, \author, \address, \email, \keywords, \subjclass,
+# \dedicatory in the preamble (before \begin{document}); without them
+# \maketitle raises "No \title given."  Standard article class may also use
+# \title, \author, \date in the preamble (optional in that class).
+# Pattern uses regex balanced-brace group for the mandatory argument so that
+# nested braces inside \title{A {B} C} are captured correctly.
+_FRONT_MATTER_RE = _re.compile(
+    r'\\(?:title|author|date|address|email|keywords|subjclass|dedicatory|thanks)'
+    r'(?:\[[^\]]*\])?'          # optional [short] argument
+    r'\s*'
+    r'(?P<arg>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?P&arg))*(?<!\\)\})',
+    _re.DOTALL,
+)
+
+# \newtheorem{name}{print-name}[numbered-within]  and  \newtheorem*{name}{print-name}
+# These define LaTeX theorem environments that must remain in the preamble;
+# they are NOT macro definitions that demacro can expand away.
+# Docs: https://texdoc.org/pkg/amsthm
+_NEWTHEOREM_RE = _re.compile(
+    r'\\newtheorem\*?'
+    r'\s*\{[^}]*\}'             # {environment-name}
+    r'\s*(?:\[[^\]]*\])?'       # optional [numbered-within] before print-name
+    r'\s*\{[^}]*\}'             # {print-name}
+    r'\s*(?:\[[^\]]*\])?',      # optional [numbered-within] after print-name
+    _re.DOTALL,
+)
+
 
 def build_minimal_preamble(raw_tex: str) -> str:
     """Return a minimal LaTeX preamble extracted from raw_tex.
 
-    Keeps only the \\documentclass declaration and all \\usepackage /
-    \\usetikzlibrary calls (with their options), in original order.
-    All custom macro definitions are stripped.
+    Keeps the \\documentclass declaration, all \\usepackage / \\usetikzlibrary
+    calls (with their options), and any front-matter commands (\\title, \\author,
+    \\date, \\address, \\email, \\keywords, \\subjclass, \\dedicatory, \\thanks)
+    that appear in the original preamble.  All custom macro definitions are
+    stripped.
+
+    Front-matter commands are preserved because amsart/amsbook (and similar
+    document classes) require \\title and \\author to be declared in the
+    preamble; stripping them causes "No \\title given" at \\maketitle.
 
     Package parsing is delegated to
     :func:`texphage.find_packages.find_explicit_package_calls`, which uses the
@@ -58,7 +92,10 @@ def build_minimal_preamble(raw_tex: str) -> str:
     docclass_m = _DOCCLASS_RE.search(raw_preamble)
     docclass = docclass_m.group(0) if docclass_m else r'\documentclass{article}'
     pkg_lines = [call.verbatim for call in find_explicit_package_calls(raw_preamble)]
-    return docclass + '\n' + '\n'.join(pkg_lines)
+    front_matter = [m.group(0) for m in _FRONT_MATTER_RE.finditer(raw_preamble)]
+    newtheorems = [m.group(0).strip() for m in _NEWTHEOREM_RE.finditer(raw_preamble)]
+    parts = [docclass] + pkg_lines + newtheorems + front_matter
+    return '\n'.join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +211,10 @@ def texphage(
     raw_tex = unfold(src_dir, main_tex)
     expanded_body, _packages, _problems = demacro(raw_tex)
     minimal_preamble = build_minimal_preamble(raw_tex)
+    # BUG-12: preprocessing collapses the entire body to one line. TeX's bufsize
+    # is 200k chars/line; large papers overflow it. Restore newlines at \par
+    # boundaries — macro expansion is already complete so this is safe.
+    expanded_body = expanded_body.replace(r'\par ', r'\par' + '\n')
     canonical_tex = (
         minimal_preamble
         + '\n\\begin{document}\n'

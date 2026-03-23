@@ -369,14 +369,13 @@ status (OPEN / IN_PROGRESS / FIXED).
     preamble.tex — \documentclass{article}
   ```
   `find_main_file('tests/fixtures/bug_13_find_main_file_no_docclass')` returns `''`.
-- **fix**: In `find_main_file()`: (1) read `00README.json` when `00README.XXX` is absent,
-  parsing `sources[].filename` where `usage == "toplevel"`; (2) relax the `\documentclass`
-  check for the preferred canonical names (`main.tex`, `paper.tex`, `article.tex`,
-  `manuscript.tex`) — return the file content without requiring `\documentclass` in it,
-  since these names are trusted root files by convention.
+- **fix**: In `find_main_file()`, check preferred canonical names (`main.tex`, `paper.tex`,
+  `article.tex`, `manuscript.tex`) unconditionally first — return the first one found
+  without requiring `\documentclass`. Only fall back to the `\documentclass` check for
+  non-preferred files. Preferred names are trusted root files by convention.
 - **first_seen**: 2026-03-23
-- **last_seen**: 2026-03-23
-- **status**: OPEN
+- **fixed**: 2026-03-23
+- **status**: FIXED
 
 ---
 
@@ -400,11 +399,10 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **relevant_latex_docs**: TeXbook Ch.11 — `\input`; https://ctan.org/pkg/xypic
 - **reproduction**: `tests/fixtures/bug_14_braceless_input/main.tex` — `\input xy` without
   braces; after pipeline, `\xymatrix` is undefined in pipeline output.
-- **fix**: Extend `_FIND_INPUT` to match braceless `\input <word>` (where `<word>` is a
-  single token with no whitespace). Since braceless `\input` is plain-TeX style and
-  typically loads a package or a single file, it should be treated as `\input{<word>}`.
-  Alternatively, in `build_minimal_preamble`, detect unresolved `\input <pkg>` calls that
-  correspond to known packages and emit `\usepackage{<pkg>}` for them.
+- **fix**: Added `input_bare` branch to `_FIND_INPUT` matching `\\input <word>` (braceless)
+  with path `[^\s\{\}%]+`. Added corresponding handler in `_make_file_replacement` that
+  resolves the path the same way as braced `\\input{path}`. System packages (e.g. `xy.tex`)
+  warn and leave the directive as-is if not found locally.
 - **first_seen**: 2026-03-23
-- **last_seen**: 2026-03-23
-- **status**: OPEN
+- **fixed**: 2026-03-23
+- **status**: FIXED
