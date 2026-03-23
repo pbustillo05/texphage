@@ -1,0 +1,17 @@
+\documentclass{amsart}
+\usepackage{amsmath}
+% \newtheorem declarations are stripped by build_minimal_preamble.
+% The body still uses \begin{thm}...\end{thm}, which fails with
+% "Environment thm undefined."
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{prop}[thm]{Proposition}
+\newtheorem{lem}[thm]{Lemma}
+\newtheorem*{rem}{Remark}
+\begin{document}
+\begin{thm}\label{thm:main}
+  Every compact metric space is complete.
+\end{thm}
+\begin{rem}
+  This is a standard result.
+\end{rem}
+\end{document}

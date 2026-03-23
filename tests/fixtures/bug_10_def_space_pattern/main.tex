@@ -1,0 +1,12 @@
+\documentclass{article}
+\usepackage{amsmath}
+% \def with a space before the body brace: \def \R {{\mathbb R}}
+% The space is captured in def_pattern, producing a call-site pattern
+% that requires \R to be followed by a literal space.  This causes
+% pattern_mismatch when \R appears before $, }, ), . etc.
+\def \R {{\mathbb R}}
+\def \cl {{\mathrm{cl}}}
+\begin{document}
+$f: X \to \R$.
+The closure $\cl(U)$ is compact.
+\end{document}

@@ -55,10 +55,16 @@ status (OPEN / IN_PROGRESS / FIXED).
   — `build_dictionary()` `def` branch, pattern construction via `re.sub(r'#(\d)', ...)`.
 - **relevant_latex_docs**: TeXbook Ch.20; https://texdoc.org/serve/texbytopic/0 Ch.10
 - **reproduction**: `\def\swap#1and#2{#2 and #1}` + `\swap Alice and Bob` →
-  pattern mismatch; `Bob and Alice` not produced
+  Playground verified: TeX produces `B and Alice ob` (`#1` = delimited → `Alice `,
+  `#2` = undelimited → one token `B`; `ob` left in stream). Our pattern was producing
+  a `pattern_mismatch` because `token()` only matches one char/token, not multi-char
+  sequences like `Alice`. Fixed via `_def_param_pattern()` helper that uses lazy `.*?`
+  for delimited params and `token()` for undelimited params.
+- **fix**: Replace `re.sub(r'#(\d)', …)` in `def`/`edef` branches with new
+  `_def_param_pattern()` helper that distinguishes delimited vs. undelimited params.
 - **first_seen**: 2026-03-21
-- **last_seen**: 2026-03-21
-- **status**: OPEN
+- **fixed**: 2026-03-22
+- **status**: FIXED
 
 ---
 
@@ -186,9 +192,13 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **relevant_latex_docs**: https://www.ams.org/arc/tex/amsart/amsart.pdf (§2 — front matter)
 - **reproduction**: `amsart` paper with `\title{Foo}`, `\author{Bar}` in preamble, `\maketitle`
   in body → after `build_minimal_preamble`, preamble has no `\title` → "No `\title` given"
+- **fix**: In `build_minimal_preamble`, add `_FRONT_MATTER_RE` pattern that matches
+  `\title`, `\author`, `\date`, `\address`, `\email`, `\keywords`, `\subjclass`,
+  `\dedicatory`, `\thanks` from the raw preamble (using balanced-brace matching) and
+  appends them after the package lines.
 - **first_seen**: 2026-03-22
-- **last_seen**: 2026-03-22
-- **status**: OPEN
+- **fixed**: 2026-03-22
+- **status**: FIXED
 
 ---
 
@@ -216,6 +226,118 @@ status (OPEN / IN_PROGRESS / FIXED).
   ```
   After comment stripping the comment line becomes blank → blank line → `\par` →
   `\title{ \par My Paper Title}` → "Paragraph ended before `\title` was complete."
+- **fix**: Add `_strip_par_in_groups()` helper (called as preprocessing step 4.5) that
+  scans the flat string and removes `\par` tokens at brace depth > 0, while leaving
+  top-level `\par` tokens (between body paragraphs) intact.
 - **first_seen**: 2026-03-22
-- **last_seen**: 2026-03-22
+- **fixed**: 2026-03-22
+- **status**: FIXED
+
+---
+
+## BUG-10: `\def \foo {body}` — trailing space in `def_pattern` causes pattern_mismatch for zero-arg macros
+
+- **severity**: HIGH
+- **root_cause_pattern**: `build_dictionary()` `def`/`edef` branch — `_def_param_pattern` receives whitespace-only `def_pattern`
+- **failure_mode**: B
+- **seen_in**: [2601.18343] — `\def \R {{\mathbb R}}`, `\def \cl {{\mathrm{\bf cl}}}` (312 problematic macros)
+- **description**: The `find_def` regex captures `def_pattern` as `[^\{]*`, which greedily
+  includes the space between the command name and the opening `{` of the body. For a zero-arg
+  macro like `\def \R {{\mathbb R}}`, `def_pattern` is `' '` (a single space) rather than `''`.
+  `_def_param_pattern(' ')` escapes the space to `'\ '` and appends it to the call-site
+  pattern, producing `\\R(?![a-zA-Z])\ `. This pattern requires `\R` to be followed by a
+  literal space, so it fails whenever `\R` appears before `$`, `}`, `)`, `.`, etc.
+  texdef confirms: `\def \R {{\mathbb R}}` and `\def\R{{\mathbb R}}` are identical in TeX.
+- **relevant_code_location**: `src/texphage/demacro.py` — `build_dictionary()` `def` branch
+  (line ~550): `_def_param_pattern(macro.group('def_pattern'))` is called without first
+  stripping whitespace from `def_pattern`.
+- **relevant_latex_docs**: TeXbook Ch. 20 — spaces in parameter text before `{` are ignored
+  for zero-argument definitions.
+- **reproduction**:
+  ```latex
+  \documentclass{article}
+  \usepackage{amsmath}
+  \def \R {{\mathbb R}}
+  \begin{document}
+  $f: X \to \R$.
+  \end{document}
+  ```
+  Pipeline produces `\R` unexpanded in body (pattern_mismatch), causing
+  `Undefined control sequence \R` at compile.
+- **fix**: In `build_dictionary()`, strip whitespace from `def_pattern` and `edef_pattern`
+  before passing to `_def_param_pattern`. Alternatively, strip inside `_def_param_pattern`
+  itself. The stripped string `''` produces the correct empty pattern for zero-arg macros.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-11: `\newtheorem` declarations stripped by `build_minimal_preamble` — theorem environments undefined
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `build_minimal_preamble` in `src/texphage/pipeline.py`
+- **failure_mode**: A
+- **seen_in**: [2601.11263, 2601.17623] — `\newtheorem{thm}{Theorem}[section]` etc.
+- **description**: `build_minimal_preamble` keeps only `\documentclass`, `\usepackage`,
+  `\usetikzlibrary`, and front-matter commands (`\title`, `\author`, etc.). It strips
+  `\newtheorem{thm}{Theorem}[section]` and related declarations. The document body then
+  uses `\begin{thm}...\end{thm}`, which fails with `! LaTeX Error: Environment thm undefined.`
+  `\newtheorem` is not a macro to be expanded; it defines a LaTeX environment that must
+  remain in the preamble for the body to compile correctly.
+  `find_all` also does not recognise `\newtheorem` (confirmed: no matches in pattern probe),
+  so the theorem environment names are never expanded or removed from the body either.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`;
+  `_FRONT_MATTER_RE` does not include `\newtheorem`.
+- **relevant_latex_docs**: https://texdoc.org/pkg/amsthm; LaTeX2e companion §6.3
+- **reproduction**:
+  ```latex
+  \documentclass{amsart}
+  \newtheorem{thm}{Theorem}[section]
+  \begin{document}
+  \begin{thm}
+    Hello world.
+  \end{thm}
+  \end{document}
+  ```
+  After `build_minimal_preamble`, `\newtheorem` is gone → compile error
+  `Environment thm undefined`.
+- **fix**: Add `\newtheorem` (and `\newtheorem*`) calls to the set of preamble lines
+  preserved by `build_minimal_preamble`. A `_NEWTHEOREM_RE` pattern matching
+  `\newtheorem{name}{print-name}[optional-counter]` and
+  `\newtheorem*{name}{print-name}` should be added to the scan and its matches
+  appended after the package lines.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-12: Whitespace collapse produces lines exceeding TeX's `bufsize` — compile fails for large papers
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `preprocessing()` in `src/texphage/demacro.py` — step 4 (whitespace collapse)
+- **failure_mode**: C
+- **seen_in**: [2602.08480] — 2,894-line source collapsed to single 218,126-character line
+- **description**: Step 4 of `preprocessing()` collapses all whitespace (spaces, tabs,
+  newlines) into single spaces, turning the entire document body into essentially one
+  very long line. TeX's internal buffer (`bufsize`) defaults to 200,000 characters per
+  line. For large papers (≥~200k characters in body), TeX aborts with:
+  `! Unable to read an entire line---bufsize=200000. Please increase buf_size in texmf.cnf.`
+  The paper 2602.08480 has a 2,894-line source; the pipeline output has a single 218,126-
+  character body line, exceeding the limit by ~18k characters. The baseline compiles fine
+  since the original source respects natural line breaks.
+- **relevant_code_location**: `src/texphage/demacro.py` — `preprocessing()` step 4;
+  `re.sub(r'[ \t]+', ' ', tex)` and the preceding newline collapse.
+- **relevant_latex_docs**: https://texdoc.org/serve/texbytopic/0 §1.1 — TeX input processor
+  reads one line at a time; `bufsize` is the maximum characters per line.
+- **reproduction**: Any paper whose body exceeds 200,000 characters when collapsed to a
+  single line. 2602.08480 (`Greg-MFO-notes3.tex`, 2,894 lines) is a confirmed case.
+- **fix**: After demacro expansion, insert `\n` line breaks at `\par` boundaries in the
+  output before writing `pipeline_output.tex`. The `\par` tokens in the expanded body
+  represent paragraph boundaries — replacing them with `\n\n` would restore newlines
+  without disrupting any regex patterns (the expansion is already complete at that point).
+  Alternatively, insert `\n` after every `\par ` in the final pipeline output string.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
 - **status**: OPEN

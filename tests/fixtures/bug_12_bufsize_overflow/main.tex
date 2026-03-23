@@ -1,0 +1,18 @@
+\documentclass{article}
+% Reproduction for BUG-12: whitespace collapse in preprocessing() turns the
+% entire document body into a single very long line.  TeX's default bufsize
+% is 200,000 characters; documents whose body exceeds this limit after
+% whitespace collapse will fail with:
+%   ! Unable to read an entire line---bufsize=200000.
+%
+% The actual trigger is any paper large enough that its body, when all
+% whitespace is collapsed to single spaces, exceeds ~200,000 characters.
+% 2602.08480 (Greg-MFO-notes3.tex, 2,894 lines) produced a 218,126-char line.
+%
+% This fixture is a documentation stub; automated reproduction requires
+% generating a body of sufficient length.  The fix is to restore \n breaks at
+% \par boundaries in the final pipeline output (after expansion is complete).
+\begin{document}
+This is a documentation-only fixture for BUG-12.
+See src/texphage/demacro.py preprocessing() step 4.
+\end{document}
