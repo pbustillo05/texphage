@@ -125,6 +125,8 @@ def find_specific_env(csname: str) -> str:
 #   - Single-symbol command names (\|, \!) not matched (find_com only handles [a-zA-Z]+)
 #   - Delimited arguments (token patterns) are captured verbatim; build_dictionary
 #     converts #N placeholders into named capture groups at expansion time
+#   - [inferred] Doubled hashes (##) in the parameter text, used to represent a
+#     literal # in the replacement body, are not supported by _def_param_pattern.
 find_def = r'\\g?def ?%s(?<def_pattern>[^\{]*)%s' %(new_csname('def_csname'), token('def_content'))
 
 # MATCHES: \edef\cmdname<pattern>{body}  or  \xdef\cmdname<pattern>{body}

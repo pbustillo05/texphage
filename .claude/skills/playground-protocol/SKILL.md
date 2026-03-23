@@ -2,7 +2,7 @@
 name: playground-protocol
 description: >
   How to use scripts/latex_playground.py as the oracle for all test assertions.
-  Load before writing any test or verifying any fix. Contains Templates A, C, D.
+  Load before writing any test or verifying any fix. Contains Templates A, C, D, E, F.
 ---
 
 ## Template B — Pattern probe
@@ -128,3 +128,81 @@ def test_<construct>_BUG_N():
 ```
 
 Run the test and **confirm it fails** before touching any source code.
+
+---
+
+## Template E — Single snippet visual inspection
+
+**Question:** What does this TeX fragment actually render as?
+
+Use when `pdf_text` is insufficient (math symbols, spacing, fonts).
+`use_standalone=True` gives a tight crop for self-contained fragments.
+Do NOT use standalone when the snippet depends on page geometry or floats.
+
+```python
+from pathlib import Path
+import shutil
+from scripts.latex_playground import compile_snippet
+
+keep = Path('/tmp/pg_probe')
+result = compile_snippet(
+    body=r'\( \int_0^1 x^2 \, dx = \tfrac{1}{3} \)',
+    preamble=r'\usepackage{amsmath}',
+    use_standalone=True,
+    visual=True,
+    keep_dir=keep,
+)
+
+if result.ok:
+    # Use the Read tool on result.png_path — multimodal, no extra steps.
+    print(result.png_path)
+else:
+    print(result.error_lines)
+
+shutil.rmtree(keep)   # always clean up
+```
+
+Context cost: standalone PNG at 150 DPI ≈ 1–3k tokens.
+
+---
+
+## Template F — Multi-snippet visual comparison
+
+**Question:** Are these TeX variants visually equivalent?
+
+Snippets must be COMPLETE `.tex` strings (documentclass included).
+Protocol: **diff first** — read the diff image before loading individual PNGs.
+
+```python
+from pathlib import Path
+import shutil
+from scripts.latex_playground import compare_snippets
+
+snippets = [
+    r"""\documentclass[border=4pt]{standalone}
+\begin{document}$\frac{d}{dx}\sin x = \cos x$\end{document}""",
+
+    r"""\documentclass[border=4pt]{standalone}
+\begin{document}$(\sin x)' = \cos x$\end{document}""",
+]
+
+keep = Path('/tmp/pg_compare')
+result = compare_snippets(snippets, keep_dir=keep, labels=['Leibniz', 'Prime'])
+
+print(f"SSIM(0,1): {result.ssim_scores[(0, 1)]:.4f}")
+
+# Step 1: Read result.diffs[(0, 1)] first.
+#   Uniform/dark image → visually identical → done.
+#   Bright regions → proceed to step 2.
+# Step 2: Read result.pngs[0] and result.pngs[1].
+
+shutil.rmtree(keep)
+```
+
+Context budget:
+
+| Images loaded | Approx tokens |
+|---|---|
+| 1 diff PNG (standalone) | ~1–3k |
+| diff + both PNGs (standalone) | ~5–10k |
+| diff + both PNGs (full page) | ~30–50k |

@@ -200,8 +200,12 @@ expanded, problems = expand(body, macro_dict, find_macro, log_level=logging.DEBU
 
 #### For visual diff pages (SSIM < 0.95)
 
-Open `visual_diff/page_N_diff.png`. Determine: is the difference a content
-change (wrong text) or a layout shift (same text, different position)?
+Use the `Read` tool to load `visual_diff/page_N_diff.png` directly — Claude's
+multimodal capability processes it natively. Cap at **3 pages per paper**; if
+more than 3 pages have SSIM < 0.95, load the 3 with the lowest scores.
+
+Determine: is the difference a content change (wrong text) or a layout shift
+(same text, different position)?
 - Layout shift only → likely acceptable reflow from macro expansion; LOW/MEDIUM.
 - Content change → run **Playground Template A** (in `playground-protocol` skill)
   with the suspect macro to confirm what TeX produces, then trace the demacro
