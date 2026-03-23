@@ -473,7 +473,7 @@ status (OPEN / IN_PROGRESS / FIXED).
   `_strip_par_in_groups` leaves it → compile error.)
 - **first_seen**: 2026-03-23
 - **last_seen**: 2026-03-23
-- **status**: OPEN
+- **status**: IN_PROGRESS
 
 ---
 
