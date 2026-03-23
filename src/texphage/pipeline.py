@@ -60,9 +60,16 @@ _FRONT_MATTER_RE = _re.compile(
 # These define LaTeX theorem environments that must remain in the preamble;
 # they are NOT macro definitions that demacro can expand away.
 # Docs: https://texdoc.org/pkg/amsthm
+# MATCHES: \newtheorem{envname}{Print Name}[numbered-within]
+#          \newtheorem*{envname}{Print Name}
+# CAPTURES:
+#   nt_env → the environment name, e.g. "remark"
+# LIMITATIONS:
+#   [observed] Does not handle \theoremstyle{} — that is a separate command,
+#              not part of the \newtheorem declaration itself.
 _NEWTHEOREM_RE = _re.compile(
     r'\\newtheorem\*?'
-    r'\s*\{[^}]*\}'             # {environment-name}
+    r'\s*\{(?P<nt_env>[^}]*)\}' # {environment-name} — captured for deduplication
     r'\s*(?:\[[^\]]*\])?'       # optional [numbered-within] before print-name
     r'\s*\{[^}]*\}'             # {print-name}
     r'\s*(?:\[[^\]]*\])?',      # optional [numbered-within] after print-name
@@ -93,7 +100,16 @@ def build_minimal_preamble(raw_tex: str) -> str:
     docclass = docclass_m.group(0) if docclass_m else r'\documentclass{article}'
     pkg_lines = [call.verbatim for call in find_explicit_package_calls(raw_preamble)]
     front_matter = [m.group(0) for m in _FRONT_MATTER_RE.finditer(raw_preamble)]
-    newtheorems = [m.group(0).strip() for m in _NEWTHEOREM_RE.finditer(raw_preamble)]
+    # BUG-17: multi-file projects may have duplicate \newtheorem declarations
+    # after unfold merges the source. Deduplicate by environment name (first
+    # occurrence wins) to avoid "Command \foo already defined" errors.
+    _seen_nt: set[str] = set()
+    newtheorems: list[str] = []
+    for m in _NEWTHEOREM_RE.finditer(raw_preamble):
+        env_name = m.group('nt_env')
+        if env_name not in _seen_nt:
+            _seen_nt.add(env_name)
+            newtheorems.append(m.group(0).strip())
     parts = [docclass] + pkg_lines + newtheorems + front_matter
     return '\n'.join(parts)
 
