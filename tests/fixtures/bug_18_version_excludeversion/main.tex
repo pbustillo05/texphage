@@ -1,0 +1,26 @@
+% Fixture for BUG-18: version package \excludeversion stripped by
+% build_minimal_preamble.
+%
+% The version package defines environments via \includeversion{name} (shows
+% content) and \excludeversion{name} (hides content). These calls must
+% remain in the preamble for the named environments (e.g., "invisible") to
+% work. build_minimal_preamble strips everything that is not \documentclass,
+% \usepackage, \usetikzlibrary, \newtheorem, or front-matter. When
+% \excludeversion{invisible} is stripped, \begin{invisible}...\end{invisible}
+% in the body fails with:
+% "! LaTeX Error: \begin{document} ended by \end{invisible}."
+%
+% Playground verified: with \usepackage{version} + \excludeversion{invisible},
+% \begin{invisible}hidden\end{invisible} compiles fine.
+% Without \excludeversion{invisible}: compile error.
+%
+% Paper 2602.08954 (seeds 3 and 6) triggers this.
+\documentclass{article}
+\usepackage{version}
+\excludeversion{invisible}
+\begin{document}
+\begin{invisible}
+This content should be hidden.
+\end{invisible}
+Visible content.
+\end{document}

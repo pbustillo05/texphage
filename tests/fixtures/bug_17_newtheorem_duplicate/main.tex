@@ -1,0 +1,20 @@
+% Fixture for BUG-17: \newtheorem duplication in build_minimal_preamble
+% When unfold.py merges a multi-file project where the same \newtheorem
+% declaration appears in multiple files (e.g., a shared macros.tex that is
+% \input'd by a preamble.tex and the same declaration appears in main.tex),
+% build_minimal_preamble extracts all matches of _NEWTHEOREM_RE from the
+% merged (unfolded) source. Duplicate declarations cause:
+% "! LaTeX Error: Command \remark already defined."
+%
+% Paper 2602.04425 (seed 8) triggered this, showing:
+%   \newtheorem{remark}{Remark}[section]
+%   \newtheorem{remark}{Remark}[section]  ← duplicate
+\documentclass{article}
+\usepackage{amsthm}
+\newtheorem{remark}{Remark}[section]
+\newtheorem{remark}{Remark}[section]
+\begin{document}
+\begin{remark}
+Test remark.
+\end{remark}
+\end{document}

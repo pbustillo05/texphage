@@ -1,0 +1,18 @@
+% Fixture for BUG-15: BUG-12 fix not applied in test_fidelity.py
+% The texphage() public API applies \par -> \par\n to avoid bufsize overflow,
+% but _run_pipeline() in test_fidelity.py bypasses texphage() and does NOT
+% apply this fix, so large papers still trigger the bufsize error in tests.
+%
+% Minimal reproduction: a paper whose body exceeds ~200k chars when collapsed
+% to a single line. The actual papers that trigger this are 2602.07604 (seed 4),
+% 2601.00803 (seed 6), 2601.14237 (seed 5), 2601.17345 (seed 4).
+%
+% The test infrastructure fix is: in _run_pipeline(), after demacro() returns,
+% apply: expanded_tex = expanded_tex.replace(r'\par ', r'\par' + '\n')
+\documentclass{article}
+\begin{document}
+% [Placeholder: in a real reproduction, the body would have >200k chars
+% collapsed to a single line by preprocessing. See BUG-12 for the
+% root cause; BUG-15 is the missing fix in test_fidelity.py.]
+Hello.
+\end{document}

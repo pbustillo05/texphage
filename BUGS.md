@@ -406,3 +406,151 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **first_seen**: 2026-03-23
 - **fixed**: 2026-03-23
 - **status**: FIXED
+
+---
+
+## BUG-15: BUG-12 fix (`\par` → `\par\n`) not applied in `test_fidelity.py`
+
+- **severity**: HIGH
+- **root_cause_pattern**: `_run_pipeline` in `scripts/test_fidelity.py` — duplicates
+  pipeline logic from `texphage()` without applying the BUG-12 line-break fix
+- **failure_mode**: C
+- **seen_in**: [2602.07604, 2601.00803, 2601.14237, 2601.17345] — seeds 4, 5, 6 all
+  show BUG-12 symptoms in test runs despite BUG-12 being marked FIXED in `pipeline.py`
+- **description**: BUG-12 was fixed in `texphage()` in `pipeline.py` by replacing
+  `\par ` with `\par\n` in the expanded body after `demacro()` returns. However,
+  `_run_pipeline()` in `scripts/test_fidelity.py` bypasses `texphage()` and builds
+  `canonical_tex` directly from `demacro()` output without applying this fix.
+  Large papers (body > 200k chars when whitespace-collapsed) still trigger
+  `! Unable to read an entire line---bufsize=200000` in test runs, and medium-sized
+  papers produce text that runs together on one page producing HIGH severity diffs
+  (page_delta and low SSIM). BUG-12 was documented as needing this fix in test_fidelity.py
+  but the fix was never applied.
+- **relevant_code_location**: `scripts/test_fidelity.py` — `_run_pipeline()` lines
+  249–259; `src/texphage/pipeline.py` — `texphage()` line 217 (where fix IS applied)
+- **relevant_latex_docs**: N/A (test infrastructure bug)
+- **reproduction**: `tests/fixtures/bug_15_bufsize_test_script/main.tex` — see also
+  any large paper (2602.07604, 2601.00803) run through test_fidelity.py.
+  Fix: In `_run_pipeline()`, after `expanded_tex, packages, problems = demacro(tex)`,
+  add `expanded_tex = expanded_tex.replace(r'\par ', r'\par' + '\n')`.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-16: `\par` inside math display environments — `_strip_par_in_groups` only checks brace depth
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `_strip_par_in_groups()` in `src/texphage/demacro.py` — only
+  tracks `{`/`}` brace depth, not `\begin{...}`/`\end{...}` environment depth
+- **failure_mode**: C
+- **seen_in**: [2601.05843] — `\begin{gather}...\end{gather}` with blank line inside
+- **description**: `preprocessing()` step 3 replaces blank lines with `\par`. Step 4.5
+  calls `_strip_par_in_groups()` to remove `\par` tokens inside brace-delimited groups
+  (depth > 0). However, this function only tracks `{`/`}` brace depth. Math display
+  environments like `gather`, `align`, `alignat`, `equation`, `multline`, `split`, etc.
+  forbid `\par` in their content but are delimited by `\begin{gather}...\end{gather}`
+  (not by braces). When a blank line appears inside a `gather` environment, the resulting
+  `\par` token survives `_strip_par_in_groups()` and appears in the pipeline output body,
+  causing `! Paragraph ended before \gather was complete.`
+  Playground verified: `\begin{gather}A \to B \par C \to D\end{gather}` → compile error.
+- **relevant_code_location**: `src/texphage/demacro.py` — `_strip_par_in_groups()` (line 293)
+- **relevant_latex_docs**: https://texdoc.org/serve/texbytopic/0 Ch.5; amsmath docs
+  at https://ctan.org/pkg/amsmath (§3 — display environments forbid \par)
+- **reproduction**: `tests/fixtures/bug_16_par_in_math_env/main.tex`
+  ```latex
+  \documentclass{article}
+  \usepackage{amsmath}
+  \begin{document}
+  \begin{gather}
+  A \to B \par C \to D
+  \end{gather}
+  \end{document}
+  ```
+  (Source has a blank line inside gather → preprocessing produces `\par` →
+  `_strip_par_in_groups` leaves it → compile error.)
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-17: Duplicate `\newtheorem` declarations when merged source has repeated definitions
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `build_minimal_preamble` in `src/texphage/pipeline.py` —
+  `_NEWTHEOREM_RE` extracts all matches from the unfolded (merged) source without
+  deduplication
+- **failure_mode**: C
+- **seen_in**: [2602.04425] — multi-file paper where the same `\newtheorem{remark}`
+  appears in two merged source files
+- **description**: `build_minimal_preamble` calls `_NEWTHEOREM_RE.finditer(raw_preamble)` to
+  collect `\newtheorem` declarations. When `unfold.py` merges a multi-file project, the
+  preamble may contain duplicate `\newtheorem` declarations (e.g., one in `macros.tex`
+  and one in the main `.tex`). Without deduplication, both copies appear in the
+  minimal preamble, causing `! LaTeX Error: Command \remark already defined.`
+  Paper 2602.04425 shows `\newtheorem{remark}{Remark}[section]` twice, causing failure.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`,
+  `newtheorems` list comprehension (line 96)
+- **relevant_latex_docs**: https://texdoc.org/pkg/amsthm (§3 — \newtheorem declares
+  a theorem-like environment; redeclaring raises an error)
+- **reproduction**: `tests/fixtures/bug_17_newtheorem_duplicate/main.tex`
+  ```latex
+  \documentclass{article}
+  \usepackage{amsthm}
+  \newtheorem{remark}{Remark}[section]
+  \newtheorem{remark}{Remark}[section]
+  \begin{document}
+  \begin{remark}Test\end{remark}
+  \end{document}
+  ```
+  After `build_minimal_preamble` on merged source with two identical `\newtheorem` →
+  `Command \remark already defined.`
+  Fix: deduplicate `\newtheorem` entries by environment name before appending to parts.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-18: `version` package `\excludeversion`/`\includeversion` stripped by `build_minimal_preamble`
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: `build_minimal_preamble` in `src/texphage/pipeline.py` —
+  strips all preamble commands that are not `\documentclass`, `\usepackage`,
+  `\usetikzlibrary`, `\newtheorem`, or front-matter (`\title` etc.)
+- **failure_mode**: C
+- **seen_in**: [2602.08954] — `\usepackage{version}` + `\excludeversion{invisible}`
+  in preamble; `\begin{invisible}...\end{invisible}` in body
+- **description**: The `version` package defines new environments by calling
+  `\includeversion{name}` (content shown) or `\excludeversion{name}` (content hidden)
+  in the preamble. These calls define the `name` environment. `build_minimal_preamble`
+  strips these calls (they match neither `\usepackage`, `\newtheorem`, nor front-matter
+  patterns), leaving the named environment undefined. When `\begin{invisible}...\end{invisible}`
+  appears in the body, LaTeX cannot find the environment and fails with
+  `! LaTeX Error: \begin{document} ended by \end{invisible}.`
+  Playground verified: `\usepackage{version}` alone → `invisible` undefined;
+  with `\excludeversion{invisible}` → compiles, content hidden.
+  This pattern generalizes to any package that defines environments via preamble commands
+  (e.g., `environ`, `comment`'s `\includecomment`/`\excludecomment`).
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`
+- **relevant_latex_docs**: https://ctan.org/pkg/version
+- **reproduction**: `tests/fixtures/bug_18_version_excludeversion/main.tex`
+  ```latex
+  \documentclass{article}
+  \usepackage{version}
+  \excludeversion{invisible}
+  \begin{document}
+  \begin{invisible}hidden\end{invisible}
+  Visible content.
+  \end{document}
+  ```
+  After `build_minimal_preamble` strips `\excludeversion{invisible}` →
+  `\begin{invisible}` undefined → compile error.
+  Fix: add `_EXCLUDEVERSION_RE` pattern matching `\excludeversion{name}` and
+  `\includeversion{name}` and append them to the minimal preamble.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+

@@ -1,0 +1,16 @@
+% Fixture for BUG-16: \par inserted inside math display environments
+% _strip_par_in_groups() removes \par tokens at brace depth > 0, but does
+% NOT track \begin{...}...\end{...} environment depth. A blank line inside
+% \begin{gather}...\end{gather} (or align, equation, etc.) becomes \par
+% after preprocessing step 3, and \par inside math mode causes:
+% "! Paragraph ended before \gather was complete."
+%
+% Playground verified: compile fails with \par inside gather.
+\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+\begin{gather}
+A \to B
+\label{eq:example}
+\end{gather}
+\end{document}

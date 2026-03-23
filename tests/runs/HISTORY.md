@@ -13,3 +13,8 @@ The testing-agent appends a row here after every run (Step 8.5).
 | 2026-03-22 |    7 | 4             | BUG-7 (fixed), BUG-8, BUG-9          |
 | 2026-03-23 |    1 | 4             | BUG-10, BUG-11, BUG-12               |
 | 2026-03-23 |    2 | 4             | BUG-13, BUG-14 (new); BUG-12 updated (seen_in) |
+| 2026-03-23 |    3 | 5             | BUG-15, BUG-16, BUG-17, BUG-18 (new) |
+| 2026-03-23 |    4 | 3             | BUG-15, BUG-16 confirmed (seen_in updated) |
+| 2026-03-23 |    5 | 2             | BUG-15 confirmed; BUG-12 symptom in 2601.14237 |
+| 2026-03-23 |    6 | 4             | BUG-15, BUG-18 confirmed; \prop undefined in 2601.13325 |
+| 2026-03-23 |    8 | 3             | BUG-17 confirmed (2602.04425); Missing $ in math mode (BUG-15 cascade) |
