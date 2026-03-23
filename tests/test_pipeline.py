@@ -250,3 +250,86 @@ def test_run_pipeline_raw_mode_applies_par_newline_BUG15():
     assert max_len < 10_000, (
         f"Body has a line of {max_len} chars — bufsize overflow risk"
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG-16 regression: \par inside math display environments
+# ---------------------------------------------------------------------------
+
+def test_par_stripped_inside_gather_BUG16():
+    r"""BUG-16: \par inside \begin{gather}...\end{gather} must be removed.
+
+    Playground verified:
+      \begin{gather} A \to B \par C \to D \end{gather} -> compile error
+      \begin{gather} A \to B \\ C \to D \end{gather} -> compiles OK
+    compile_snippet(preamble=r'\usepackage{amsmath}',
+                    body=r'\begin{gather} A \to B \\ C \to D \end{gather}').ok == True
+    """
+    from texphage.demacro import preprocessing
+
+    raw = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsmath}\n"
+        "\\begin{document}\n"
+        "\\begin{gather}\n"
+        "A \\to B\n"
+        "\n"
+        "C \\to D\n"
+        "\\end{gather}\n"
+        "\\end{document}"
+    )
+    _preamble, body, _pkgs = preprocessing(raw)
+    # Positive: the math content must survive
+    assert '\\begin{gather}' in body
+    assert 'A \\to B' in body
+    assert 'C \\to D' in body
+    # Negative: \par must NOT appear inside the gather environment
+    # (it would cause "Paragraph ended before \gather was complete")
+    gather_start = body.index('\\begin{gather}')
+    gather_end = body.index('\\end{gather}')
+    gather_content = body[gather_start:gather_end]
+    assert '\\par' not in gather_content, (
+        f"BUG-16: \\par survived inside gather: {gather_content!r}"
+    )
+
+
+def test_par_stripped_inside_align_BUG16():
+    r"""BUG-16: \par inside \begin{align}...\end{align} must be removed."""
+    from texphage.demacro import preprocessing
+
+    raw = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsmath}\n"
+        "\\begin{document}\n"
+        "\\begin{align}\n"
+        "x &= 1\n"
+        "\n"
+        "y &= 2\n"
+        "\\end{align}\n"
+        "\\end{document}"
+    )
+    _preamble, body, _pkgs = preprocessing(raw)
+    align_start = body.index('\\begin{align}')
+    align_end = body.index('\\end{align}')
+    align_content = body[align_start:align_end]
+    assert '\\par' not in align_content, (
+        f"BUG-16: \\par survived inside align: {align_content!r}"
+    )
+
+
+def test_par_preserved_outside_math_env_BUG16():
+    r"""BUG-16: \par at top level (between paragraphs) must survive."""
+    from texphage.demacro import preprocessing
+
+    raw = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "First paragraph.\n"
+        "\n"
+        "Second paragraph.\n"
+        "\\end{document}"
+    )
+    _preamble, body, _pkgs = preprocessing(raw)
+    assert '\\par' in body, (
+        "Top-level \\par between paragraphs must be preserved"
+    )
