@@ -232,6 +232,10 @@ def _run_pipeline(raw_data_dir: Path, run_dir: Path,
 
     tex = unfold(raw_data_dir)
     expanded_tex, packages, problems = demacro(tex)
+    # BUG-15 / BUG-12: preprocessing collapses the entire body to one line.
+    # TeX's bufsize is 200k chars/line; large papers overflow it. Restore
+    # newlines at \par boundaries — mirrors the fix in pipeline.texphage().
+    expanded_tex = expanded_tex.replace(r'\par ', '\\par' + '\n')
 
     report = {
         'packages': packages,

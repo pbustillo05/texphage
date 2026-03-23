@@ -435,7 +435,8 @@ status (OPEN / IN_PROGRESS / FIXED).
   add `expanded_tex = expanded_tex.replace(r'\par ', r'\par' + '\n')`.
 - **first_seen**: 2026-03-23
 - **last_seen**: 2026-03-23
-- **status**: IN_PROGRESS
+- **status**: FIXED
+- **fixed**: 2026-03-23
 
 ---
 
