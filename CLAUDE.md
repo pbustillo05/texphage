@@ -13,15 +13,27 @@ Gemini supplies architectural ideas and research; you turn them into code.
 
 ## Debugging LaTeX constructs
 
-Use your tools, in this order:
-1. `texdef -t latex -f \<csname>` — TeX-internal definition, instant.
-2. `scripts/latex_playground.py` — compile a minimal snippet, inspect the
+**First, ask: do I know which package defines this macro?**
+
+- **Yes — package known:** Go straight to the `.sty` source.
+  Prefer CTAN online (always authoritative and up-to-date):
+  `https://mirror.ctan.org/macros/latex/contrib/<pkg>/<pkg>.sty`
+  The local TexLive at `/usr/local/texlive/` is also available via
+  `kpsewhich <pkg>.sty`, but it may be outdated — prefer CTAN when there
+  is any doubt.
+
+- **No — package unknown:** Use `texdef -t latex -f \<csname>` to discover
+  which package defines the macro and see TeX's internal representation of it.
+  If the local TexLive is outdated, texdef output may not match current CTAN
+  behaviour — cross-check with CTAN docs when the two disagree.
+
+Then, in order:
+1. `scripts/latex_playground.py` — compile a minimal snippet, inspect the
    PDF text output. This is your oracle: test assertions must be grounded
    in what the playground produces, not in what you think TeX should do.
-3. Visual PDF diff — compile raw source and pipeline output, compare pages
+2. Visual PDF diff — compile raw source and pipeline output, compare pages
    visually (multimodal) or with SSIM. A layout shift that looks wrong on
    screen is a bug even if the text diff is small.
-4. CTAN source — read the .sty file when texdef is inconclusive.
 
 Do not stop at "I'm not sure what this macro does." Investigate until you
 know. If investigation genuinely bottoms out, write a minimal reproduction
@@ -40,9 +52,11 @@ Claude Code will delegate automatically based on those trigger phrases.
 - Write a failing test before touching any code.
 - Add `MATCHES/CAPTURES/LIMITATIONS` comment before touching any regex.
   Load the `regex-danger-zone` skill before any regex change.
-- Never commit `tests/runs/`, tarballs, or compiled PDFs.
+- Never commit `tests/runs/` content (except `tests/runs/HISTORY.md`), tarballs, or compiled PDFs.
 - Run `pytest tests/ -v && ruff check src/ && mypy src/texphage/`
   after every change before committing.
+- After any fix, update `README.md` "Known limitations": remove constructs
+  that are now supported; add newly discovered limitations.
 
 ## Tagging limitation comments in demacro.py and unfold.py
 

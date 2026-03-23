@@ -7,15 +7,17 @@ description: >
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: sonnet
 skills:
+  - locking-protocol
   - failure-taxonomy
   - playground-protocol
   - bug-management
 ---
 
 You are the Testing Agent for texphage. Follow every step below exactly.
-All rules are mandatory. Load the `failure-taxonomy`, `playground-protocol`,
-and `bug-management` skills immediately — they contain the failure mode
-taxonomy, playground templates, and BUGS.md format you will need.
+All rules are mandatory. Load the `locking-protocol`, `failure-taxonomy`,
+`playground-protocol`, and `bug-management` skills immediately — they contain
+the locking procedure, failure mode taxonomy, playground templates, and
+BUGS.md format you will need.
 
 ## When to run
 
@@ -37,31 +39,9 @@ specific IDs? What seed or IDs should I use?"`
 Only proceed with downloads if the user confirms. This prevents accidental
 network usage and gives the user control over which papers are tested.
 
-## Locking Protocol
-
-Before starting any work, check for a lock file:
-
-```python
-LOCK_FILE = Path('tests/runs/.agent.lock')
-```
-
-- If the file exists and is **less than 4 hours old**: another agent run is
-  in progress. Reply `"Lock held — another agent run is active. Waiting."` and stop.
-- If the file exists and is **more than 4 hours old**: it is stale (likely a
-  crashed run). Delete it and proceed.
-- If the file does not exist: create it with your agent name and the current
-  timestamp as content.
-
-Always delete the lock file in a `finally` block — even if you crash or the
-user interrupts the session.
-
-If two Claude conversations are running in parallel (e.g. the user has two
-browser tabs open), they will both see the same lock file and one will abort.
-This is the intended behaviour.
-
 ### Step 1 — Acquire lock
 
-Check and create the lock file as described above.
+Load and follow the `locking-protocol` skill.
 
 ### Step 2 — Sample papers
 
@@ -158,14 +138,22 @@ anything else.
 
 #### For `undefined_control_sequence \foo` (Mode A or B)
 
-**Step 7.1 — Run texdef first. This is mandatory, not optional.**
+**Step 7.1 — Get the macro's definition. The right tool depends on what you know.**
+
+If the source package is visible in the paper's `\usepackage` list or
+inferable from the macro name, go straight to the `.sty` source:
+- **CTAN online (preferred — always up-to-date):**
+  `https://mirror.ctan.org/macros/latex/contrib/<pkg>/<pkg>.sty`
+- **Local TexLive (fallback):** `kpsewhich <pkg>.sty`, then read the file.
+  The local distro at `/usr/local/texlive/` may be outdated — prefer CTAN
+  when the two disagree.
+
+If the source package is **unknown**, use texdef to discover it:
 ```bash
 texdef -t latex -f \\foo
-# If the macro comes from a known package:
-texdef -t latex -p amsmath -f \\foo
 ```
-texdef gives you the TeX machine's internal representation of the macro.
-This is the ground truth for what the regex must match. Record the output.
+texdef uses the local TexLive installation and may be outdated; cross-check
+with CTAN if the output looks suspect. Record the definition.
 
 **Step 7.2 — Classify mode A vs B.**
 ```python
@@ -242,7 +230,16 @@ Use the entry format from the `bug-management` skill. After adding a bug entry,
 create the reproduction snippet as a fixture file in
 `tests/fixtures/bug_N_<short_name>/main.tex`.
 
-Commit: `test: run <run_id>, N new bugs, M updated`
+### Step 8.5 — Update testing history
+
+Append a row to `tests/runs/HISTORY.md`:
+
+```
+| YYYY-MM-DD | <seed> | <N papers> | <BUG-X, BUG-Y, ...> or "— (no new bugs)" |
+```
+
+Include this in the same commit as Step 8:
+`test: run <run_id>, N new bugs, M updated`
 
 ### Step 9 — Cleanup
 
@@ -251,11 +248,12 @@ already printed to the console and written to `manifest.json` before deletion.
 arXiv tarballs and compiled PDFs are large; do not let them accumulate.
 
 To keep the run directory for debugging (SSIM diffs, compile logs, etc.), pass
-`--keep-runs` to `test_fidelity.py`.  Never commit `tests/runs/`.
+`--keep-runs` to `test_fidelity.py`.  Never commit `tests/runs/` run directories.
 
 ### Step 10 — Release lock
 
-Always in a `finally` block.
+Load and follow the `locking-protocol` skill's release step. Always in a
+`finally` block.
 
 ---
 
@@ -264,6 +262,7 @@ Always in a `finally` block.
 ```
 tests/
   runs/
+    HISTORY.md                           ← COMMITTED; append a row each run
     .agent.lock                          ← lock file; deleted after each run
     <run_id>/                            ← YYYYMMDD_HHMMSS_<seed>
       manifest.json                      ← DELETED by default cleanup (Step 9)
@@ -288,5 +287,6 @@ tests/fixtures/                          ← COMMITTED; every reproduction lives
 
 **Default:** entire `<run_id>/` directory is deleted after the run (Step 9).
 Use `--keep-runs` to preserve it for debugging.
-`tests/runs/` is in `.gitignore` — never committed.
+`tests/runs/<run_id>/` is in `.gitignore` — never committed.
+`tests/runs/HISTORY.md` is committed — it is explicitly excluded from `.gitignore`.
 `tests/fixtures/` is committed — the test suite must never depend on external data.

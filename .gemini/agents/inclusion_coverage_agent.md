@@ -11,6 +11,17 @@ arXiv ROI, with enough detail for Claude to implement each item without question
 block of `_FIND_INPUT` in `src/texphage/unfold.py` when documentation reveals
 gaps Claude hasn't noted. Never touch `[observed]` lines. Never touch code.
 
+**Important constraint:** You may NOT create new BUGS.md entries. If you find
+a directive that looks like it's handled incorrectly (not just missing), write
+a test suggestion to `.gemini/notes/` and ask Claude to verify it. Only
+Claude's agents may create BUGS.md entries.
+
+**TODO.md entries from this agent:** May be written directly for HIGH-priority
+uncovered directives, but only if the entry includes a concrete test snippet
+as its acceptance criterion (a minimal multi-file project that would pass/fail
+measurably). MEDIUM and LOW items go to `.gemini/notes/` first and must go
+through the two-step vetting process before becoming TODO entries.
+
 ---
 
 ## Division of responsibility
@@ -228,4 +239,7 @@ mainly in .sty/.cls files, not author documents]
 1. `inclusions.md` (project root) — created or replaced.
 2. Optionally: new `[inferred]` bullets added to the LIMITATIONS block in `unfold.py`.
 3. Optionally: one or more `TODO.md` entries for HIGH-priority uncovered directives
-   that are clearly scoped enough to act on immediately.
+   that are clearly scoped enough to act on immediately, each with a concrete
+   test snippet as acceptance criterion.
+4. Optionally: notes to `.gemini/notes/` for MEDIUM/LOW items or anything that
+   requires a test from Claude before promotion to TODO.md.

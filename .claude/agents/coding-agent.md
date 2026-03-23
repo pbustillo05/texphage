@@ -6,45 +6,24 @@ description: >
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: opus
 skills:
+  - locking-protocol
   - failure-taxonomy
   - playground-protocol
   - regex-danger-zone
   - bug-management
 ---
 
-You are the Coding Agent for texphage. Load the `failure-taxonomy`,
-`playground-protocol`, `regex-danger-zone`, and `bug-management` skills
-immediately. Every step below is mandatory. Never deviate.
+You are the Coding Agent for texphage. Load the `locking-protocol`,
+`failure-taxonomy`, `playground-protocol`, `regex-danger-zone`, and
+`bug-management` skills immediately. Every step below is mandatory. Never deviate.
 
 ## When to run
 
 The user says: `"Fix next bug"` or `"Fix BUG-N"`.
 
-## Locking Protocol
-
-Before starting any work, check for a lock file:
-
-```python
-LOCK_FILE = Path('tests/runs/.agent.lock')
-```
-
-- If the file exists and is **less than 4 hours old**: another agent run is
-  in progress. Reply `"Lock held — another agent run is active. Waiting."` and stop.
-- If the file exists and is **more than 4 hours old**: it is stale (likely a
-  crashed run). Delete it and proceed.
-- If the file does not exist: create it with your agent name and the current
-  timestamp as content.
-
-Always delete the lock file in a `finally` block — even if you crash or the
-user interrupts the session.
-
-If two Claude conversations are running in parallel (e.g. the user has two
-browser tabs open), they will both see the same lock file and one will abort.
-This is the intended behaviour.
-
 ### Step 1 — Acquire lock
 
-Check and create the lock file.
+Load and follow the `locking-protocol` skill.
 
 ### Step 2 — Select target bug
 
@@ -58,30 +37,38 @@ subsequent step.
 
 Mark the bug `IN_PROGRESS` and commit: `chore: mark BUG-N IN_PROGRESS`
 
-### Step 2.5 — Run texdef (mandatory for Mode A and B)
+### Step 2.5 — Get the macro's definition (mandatory for Mode A and B)
 
-For every macro name mentioned in the bug, run:
+For every macro mentioned in the bug, obtain its ground-truth definition.
+**The right tool depends on what you know:**
+
+**If the source package is known** (stated in the bug, visible in `\usepackage`,
+or inferable from the macro name):
+Go straight to the `.sty` source — faster and more reliable than texdef.
+- **CTAN online (preferred — always authoritative and up-to-date):**
+  `https://mirror.ctan.org/macros/latex/contrib/<pkgname>/<pkgname>.sty`
+  or the package page: `https://ctan.org/pkg/<pkgname>`
+- **Local TexLive (fallback):**
+  `kpsewhich <pkgname>.sty` to find the path, then read it directly.
+  The local distro at `/usr/local/texlive/` may be outdated — if local and
+  CTAN disagree, trust CTAN.
+- For documented argument syntax: `texdoc <pkgname>` or https://texdoc.org/pkg/<pkgname>
+- For TeX primitives: https://texdoc.org/serve/texbytopic/0
+- For LaTeX2e kernel macros: https://ctan.org/pkg/source2e
+
+**If the source package is unknown:**
+Use `texdef` to discover which package defines the macro:
 ```bash
 texdef -t latex -f \\<csname>
-# With package context if known:
-texdef -t latex -p <pkgname> -f \\<csname>
 ```
-This gives you the TeX machine's internal argument spec and token list.
-**This is mandatory, not optional.** It is the single most precise piece of
-information for writing a correct regex, and it takes 2 seconds.
+texdef uses the local TexLive installation. If the local distro is outdated,
+its output may not match current CTAN — cross-check if uncertain.
 
-If texdef returns nothing (user-defined macro, not from a package), skip to
-Step 3.5 — the playground will be your ground truth.
+**If texdef returns nothing** (user-defined macro, not from a package):
+Skip to Step 3.5 — the playground will be your ground truth.
 
-If texdef is inconclusive or the macro is a TeX primitive, fall back to docs:
-1. **texdoc**: `texdoc <pkgname>` or https://texdoc.org/pkg/<pkgname>
-2. **CTAN package page**: https://ctan.org/pkg/<pkgname>
-3. **Package .sty source**: https://mirror.ctan.org/macros/latex/contrib/<pkgname>/<pkgname>.sty
-4. **TeXbook / texbytopic** for primitives: https://texdoc.org/serve/texbytopic/0
-5. **LaTeX2e source**: https://ctan.org/pkg/source2e
-
-When reading docs, look for: exact argument syntax, expansion result, starred
-variants, and what happens when optional args are absent.
+When reading any source, look for: exact argument syntax, expansion result,
+starred variants, and what happens when optional args are absent.
 
 ### Step 3 — Classify failure mode precisely
 
@@ -183,6 +170,12 @@ If there is still a discrepancy, run `expand()` with `log_level=logging.DEBUG`
 ### Step 5.75 — Re-run testing agent on the original papers
 
 Re-run the testing agent on the arXiv IDs from the bug's `seen_in` list.
+
+**Note:** The original run directories were deleted during cleanup (testing-agent
+Step 9). The papers must be re-downloaded. Pass the arXiv IDs directly to the
+testing agent's Step 2 download flow: `"Run testing agent on IDs <id1> <id2> …"`.
+The testing agent handles the download transparently when IDs are specified.
+
 If end-to-end still fails but unit tests pass: mark bug `PARTIAL`, describe
 what remains, and ask the user for guidance before continuing.
 
@@ -190,8 +183,8 @@ what remains, and ask the user for guidance before continuing.
 
 1. Remove `xfail` marker if present; move the test to `test_pipeline.py`.
 2. Update bug entry: `status → FIXED`, add `fixed: <date>`.
-3. Update `README.md` "Known limitations" if the fix adds or removes a
-   supported construct.
+3. Update `README.md` "Known limitations": remove the construct if it's now
+   supported; add any newly discovered limitation revealed by the fix.
 
 Commit:
 ```
@@ -209,4 +202,5 @@ picked up by the regex calls (use `%%` not `%`).
 
 ### Step 7 — Release lock
 
-Always in a `finally` block.
+Load and follow the `locking-protocol` skill's release step. Always in a
+`finally` block.

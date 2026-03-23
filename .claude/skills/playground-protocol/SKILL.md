@@ -5,6 +5,14 @@ description: >
   Load before writing any test or verifying any fix. Contains Templates A, C, D.
 ---
 
+## Template B — Pattern probe
+
+Template B (does `find_all` see the definition? what does `build_dictionary` store?)
+lives in the **`failure-taxonomy`** skill, not here. Load that skill for diagnostic
+probe code. This skill covers playground invocations only (Templates A, C, D).
+
+---
+
 ## The playground as oracle
 
 **Every test assertion must be anchored to playground output.** TeX is the

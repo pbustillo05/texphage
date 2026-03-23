@@ -63,24 +63,33 @@ in a comment — otherwise future agents won't know why it's there.
 
 ### For `undefined_control_sequence \foo` (Mode A or B)
 
-**Step 1 — Run texdef first. This is mandatory, not optional.**
+**Step 1 — Get the macro's definition. The right tool depends on what you know.**
+
+**If you know (or can infer) which package defines `\foo`:**
+Go directly to the `.sty` source — this is faster and more reliable than texdef.
+- **CTAN online (preferred — always up-to-date):**
+  `https://mirror.ctan.org/macros/latex/contrib/<pkg>/<pkg>.sty`
+  or the package page: `https://ctan.org/pkg/<pkg>`
+- **Local TexLive (fallback):**
+  `kpsewhich <pkg>.sty` gives the file path; read it directly.
+  The local distribution at `/usr/local/texlive/` may be outdated — if texdef
+  output and CTAN source disagree, trust CTAN.
+- **texdoc:** `texdoc <pkgname>` or `https://texdoc.org/pkg/<pkgname>`
+
+For TeX primitives or LaTeX2e kernel macros:
+- **TeXbook / texbytopic:** https://texdoc.org/serve/texbytopic/0
+- **LaTeX2e source:** https://ctan.org/pkg/source2e
+
+When reading source, look for: exact argument syntax, expansion result,
+starred variants, and what happens when optional args are absent.
+
+**If you do NOT know which package defines `\foo`:**
+Use `texdef` to discover the package and see TeX's internal representation:
 ```bash
 texdef -t latex -f \\foo
-# If the macro comes from a known package:
-texdef -t latex -p amsmath -f \\foo
 ```
-texdef gives you the TeX machine's internal representation of the macro.
-This is the ground truth for what the regex must match. Record the output.
-
-If texdef is inconclusive or the macro is a TeX primitive, fall back to docs:
-1. **texdoc**: `texdoc <pkgname>` or https://texdoc.org/pkg/<pkgname>
-2. **CTAN package page**: https://ctan.org/pkg/<pkgname>
-3. **Package .sty source**: https://mirror.ctan.org/macros/latex/contrib/<pkgname>/<pkgname>.sty
-4. **TeXbook / texbytopic** for primitives: https://texdoc.org/serve/texbytopic/0
-5. **LaTeX2e source**: https://ctan.org/pkg/source2e
-
-When reading docs, look for: exact argument syntax, expansion result, starred
-variants, and what happens when optional args are absent.
+texdef uses the local TexLive installation. If the local distro is outdated,
+the output may not match current CTAN — cross-check with CTAN if uncertain.
 
 **Step 2 — Pattern probe (Template B): does find_all see the definition?**
 

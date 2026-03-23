@@ -1,9 +1,37 @@
 ---
 name: bug-management
 description: >
-  The BUGS.md and TODO.md format, duplicate-check protocol, and commit
-  conventions for bug and test lifecycle management. Load when creating,
-  updating, or closing bug entries.
+  The BUGS.md and TODO.md format, duplicate-check protocol, commit
+  conventions, and demacro_report.json schema for bug and test lifecycle
+  management. Load when creating, updating, or closing bug entries.
+---
+
+## Who may create BUGS.md entries
+
+Only Claude's agents (testing-agent, quarterly-audit) may create new BUGS.md
+entries. A bug requires empirical observation — running code and compiling TeX.
+Gemini reads BUGS.md and may add a `**latex_analysis**:` field to existing
+entries to document TeX semantics, but cannot create new entries.
+
+---
+
+## `demacro_report.json` schema
+
+The testing-agent writes this file alongside each pipeline run. The coding-agent
+reads it when diagnosing bugs. Fields for each entry in `problematic_macros`:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | The macro name (without backslash), e.g. `"foo"` |
+| `position` | int | Character offset in the body where the call was found |
+| `reason` | string | `"pattern_mismatch"` or `"no_progress"` |
+| `definition_pattern` | string | `macro_dict[name][0]` — the call-site regex stored for this macro |
+| `context` | string | 150 chars of body text centred on `position` |
+
+The `definition_pattern` + `context` pairing makes the report self-diagnosing:
+a coding-agent session reading it can see exactly what regex was tried and what
+text it failed to match, without re-running the pipeline.
+
 ---
 
 ## BUGS.md entry format

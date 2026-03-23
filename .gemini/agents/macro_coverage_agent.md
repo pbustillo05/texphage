@@ -11,6 +11,16 @@ implement each item without asking questions.
 blocks in `src/texphage/demacro.py` when documentation reveals gaps Claude hasn't
 noted. Never touch `[observed]` lines. Never touch code.
 
+**Important constraint:** You may NOT create new BUGS.md entries. If you find a
+pattern that looks wrong, write a test suggestion to `.gemini/notes/` and ask
+Claude to verify it. Only Claude's agents may create BUGS.md entries.
+
+**TODO.md entries from this agent:** May be written directly for HIGH-priority
+uncovered commands, but only if the entry includes a concrete test snippet as
+its acceptance criterion (a minimal preamble + body that would pass/fail
+measurably). MEDIUM and LOW items go to `.gemini/notes/` first and must go
+through the two-step vetting process before becoming TODO entries.
+
 ---
 
 ## Division of responsibility
@@ -187,4 +197,7 @@ Do not write regex syntax, Python, or implementation instructions.
 1. `macros.md` (project root) — replaced with the new version.
 2. Optionally: new `[inferred]` bullets added to LIMITATIONS blocks in `demacro.py`.
 3. Optionally: one or more `TODO.md` entries for HIGH-priority uncovered commands
-   that are clearly scoped enough to act on immediately.
+   that are clearly scoped enough to act on immediately, each with a concrete
+   test snippet as acceptance criterion.
+4. Optionally: notes to `.gemini/notes/` for MEDIUM/LOW items or anything
+   that requires a test from Claude before promotion to TODO.md.
