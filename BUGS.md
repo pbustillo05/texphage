@@ -558,3 +558,35 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **fixed**: 2026-03-23
 - **status**: FIXED
 
+
+## BUG-19: `\expandafter\def\csname...\endcsname` — csname-based definitions not registered
+
+- **severity**: HIGH
+- **root_cause_pattern**: unrecognised_definition_pattern
+- **failure_mode**: B
+- **seen_in**: []
+- **description**: When a macro uses `\expandafter\def\csname#1\endcsname{body}` to define
+  a command from a string argument, `build_dictionary` does not register the resulting
+  command. The call site (`\definecommand{world}`) is seen by `build_dictionary` as an
+  opaque macro use, not a definition, so `\world` is never added to `macro_dict`.
+  Playground verified: `\definecommand{world}` + `\world` → TeX produces "Hello, world".
+  Current demacro: `\world` remains unexpanded.
+- **relevant_code_location**: `src/texphage/demacro.py` — `build_dictionary()`, missing
+  csname-def pattern and preamble-execution pass.
+- **relevant_latex_docs**: TeXbook Ch.7 (control sequences), Ch.20 (\\expandafter)
+- **reproduction**: `tests/fixtures/bug_19_csname_expandafter/main.tex`
+  ```latex
+  \documentclass{article}
+  \newcommand{\definecommand}[1]{%
+    \expandafter\def\csname#1\endcsname{Hello, #1\!}%
+  }
+  \definecommand{world}
+  \begin{document}
+  \world
+  \end{document}
+  ```
+  demacro leaves `\world` unexpanded; TeX produces "Hello, world".
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: FIXED
+- **fixed**: 2026-03-23

@@ -129,6 +129,28 @@ def find_specific_env(csname: str) -> str:
 #     literal # in the replacement body, are not supported by _def_param_pattern.
 find_def = r'\\g?def ?%s(?<def_pattern>[^\{]*)%s' %(new_csname('def_csname'), token('def_content'))
 
+# MATCHES: \expandafter\def\csname<name>\endcsname{body}
+#          and \expandafter\gdef\csname<name>\endcsname{body}
+#          This is the standard TeX idiom for defining a command from a string.
+#          Also matches the \long\expandafter variant.
+# CAPTURES:
+#   csname_def_name    → the literal name of the new command (without \)
+#   csname_def_content → the replacement body
+# LIMITATIONS:
+#   [inferred] Name must consist of [a-zA-Z@]+ only; dynamic names involving
+#              \string, token concatenation, or other expansion are not supported.
+#   [inferred] \expandafter\edef\csname form not handled (edef semantics require
+#              immediate expansion of the body at definition time).
+#   [observed] Direct preamble use and preamble-call-expanded use both covered:
+#              the direct form is caught by find_all; indirect forms (produced by
+#              expanding a macro call in the preamble) are caught by the second pass
+#              in build_dictionary. Playground confirmed via BUG-19 fixture.
+find_csname_def = (
+    r'\\(?:long ?)?expandafter ?\\g?def ?\\csname ?'
+    r'(?<csname_def_name>[a-zA-Z@]+) ?\\endcsname ?'
+    + token('csname_def_content')
+)
+
 # MATCHES: \edef\cmdname<pattern>{body}  or  \xdef\cmdname<pattern>{body}
 # CAPTURES:
 #   edef_csname   → the command name token
@@ -274,7 +296,7 @@ key_value = r'(?!\s)%s(?:=%s)?(?=,|\})' %(key('key'), value('value'))
 #     detected in build_dictionary but not acted upon in the current implementation.
 #   - The elif chain order in build_dictionary() is load-order-sensitive:
 #     \edef must expand immediately using the current dict state; do not reorder.
-find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)|(?<dmo>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env, find_dmo))
+find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)|(?<dmo>%s)|(?<csname_def>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env, find_dmo, find_csname_def))
 
 ## PREPROCESSING: verbatim protection, whitespace normalisation, package list
 
@@ -776,8 +798,39 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
             macro_dict[csname] = [pattern, content]
             csname_finder = find_specific_com(csname)
             find_macro += '|' + csname_finder
+        elif macro.group('csname_def'):
+            # Direct \expandafter\def\csname<name>\endcsname{body} in the preamble.
+            name = macro.group('csname_def_name').strip()
+            if name:
+                content = content_replacement(macro.group('csname_def_content'))
+                macro_dict[name] = [r'\\%s(?![a-zA-Z])' % name, content]
+                find_macro += '|' + find_specific_com(name)
         else: #tikzset
             pass
+
+    # Preamble execution pass: some macros use \expandafter\def\csname...\endcsname
+    # inside their body to define new commands at call time.  After the initial scan
+    # we expand any such macro calls found in the preamble and re-register the commands
+    # they produce.  We only process macros whose raw call-site pattern matches in the
+    # preamble text AND whose expansion contains the csname-def idiom.
+    _csname_def_re = re.compile(find_csname_def)
+    # Collect (pattern, content_fn) for all command macros (environments are excluded
+    # because their call syntax includes \begin{...} which would not appear outside
+    # the document body in a definition-generating call).
+    _cmd_entries = [(pat, fn) for pat, fn in macro_dict.values() if callable(fn)]
+    for call_pattern, content_fn in _cmd_entries:
+        try:
+            for call_match in re.finditer(call_pattern, tex):
+                expanded_call = content_fn(call_match)
+                for def_m in _csname_def_re.finditer(expanded_call):
+                    new_name = def_m.group('csname_def_name').strip()
+                    if new_name and new_name not in macro_dict:
+                        new_content = content_replacement(def_m.group('csname_def_content'))
+                        macro_dict[new_name] = [r'\\%s(?![a-zA-Z])' % new_name, new_content]
+                        find_macro += '|' + find_specific_com(new_name)
+        except Exception:
+            continue
+
     return macro_dict, find_macro[1:]
 
 ###### EXPANDING

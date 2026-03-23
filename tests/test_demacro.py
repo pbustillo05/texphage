@@ -191,3 +191,29 @@ def test_preprocessing_par_still_preserved_at_top_level_BUG9():
     )
     _preamble, body, _ = preprocessing(raw)
     assert r'\par' in body, "Top-level blank line must still produce \\par in body"
+
+
+def test_csname_expandafter_indirect_define_BUG19():
+    # Playground verified: \newcommand{\definecommand}[1]{\expandafter\def\csname#1\endcsname{Hello, #1!}}
+    # + \definecommand{world} + \world → TeX produces "Hello, world" (pdftotext strips !)
+    # Current demacro leaves \world unexpanded; fix must register \world via preamble execution.
+    preamble = (
+        r'\newcommand{\definecommand}[1]{'
+        r'\expandafter\def\csname#1\endcsname{Hello, #1!}'
+        r'}'
+        '\n'
+        r'\definecommand{world}'
+    )
+    expanded, _, problems = demacro(doc(preamble, r'\world'))
+    assert 'Hello, world!' in expanded  # positive: expansion succeeded
+    assert r'\world' not in expanded    # negative: call must not survive unexpanded
+
+
+def test_csname_expandafter_direct_BUG19():
+    # Playground verified: \expandafter\def\csname mytest\endcsname{Direct!} + \mytest
+    # → TeX produces "Direct" (pdftotext strips !)
+    # Tests the direct (non-nested) \expandafter\def\csname form in the preamble.
+    preamble = r'\expandafter\def\csname mytest\endcsname{Direct content}'
+    expanded, _, problems = demacro(doc(preamble, r'\mytest'))
+    assert 'Direct content' in expanded
+    assert r'\mytest' not in expanded

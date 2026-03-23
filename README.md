@@ -3,7 +3,7 @@
 Unfold multi-file LaTeX projects into a single 5-lines document of the form:
 ```LaTeX
 \documentclass[...]{...}
-% <minimal list of \usepackage[...]{...} commands>
+% <minimal preamble containing mostly a list of \usepackage[...]{...} commands>
 \begin{document}
 % <1-line demacro'ed body>
 \end{document}
@@ -86,7 +86,7 @@ contains end-to-end regression tests that require `latexmk`.
 
 ## Known limitations
 
-- `\expandafter` / `\csname…\endcsname` expansion not supported
+- `\expandafter` / `\csname…\endcsname`: the common `\expandafter\def\csname name\endcsname{body}` idiom is supported (direct and one-level-deep via preamble call expansion); deeply nested or dynamically computed names are not
 - `\if`, `\ifx`, `\ifnum` and other TeX conditionals not evaluated
 - Only preamble-defined macros are expanded; package-defined macros are not
 - `pgfkeys` / `\tikzset` key-value macro definitions not supported
@@ -98,4 +98,7 @@ contains end-to-end regression tests that require `latexmk`.
 
 ---
 
-For AI workflow protocols, see `CLAUDE.md` and `.claude/agents/`.
+For AI workflow protocols, see `CLAUDE.md`, `.claude/`, `GEMINI.md` and `.gemini/`.
+For bugs and future directions, see `BUGS.md` and `TODO.md`.
+
+---

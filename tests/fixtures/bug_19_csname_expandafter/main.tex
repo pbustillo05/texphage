@@ -1,0 +1,8 @@
+\documentclass{article}
+\newcommand{\definecommand}[1]{%
+  \expandafter\def\csname#1\endcsname{Hello, #1!}%
+}
+\definecommand{world}
+\begin{document}
+\world
+\end{document}
