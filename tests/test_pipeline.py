@@ -333,3 +333,43 @@ def test_par_preserved_outside_math_env_BUG16():
     assert '\\par' in body, (
         "Top-level \\par between paragraphs must be preserved"
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG-17 regression: duplicate \newtheorem deduplication
+# ---------------------------------------------------------------------------
+
+def test_build_minimal_preamble_deduplicates_newtheorem_BUG17():
+    r"""BUG-17: duplicate \newtheorem declarations must be deduplicated.
+
+    Playground verified:
+      \usepackage{amsthm} + \newtheorem{remark}{Remark}[section] (single)
+      + \begin{remark}Test remark.\end{remark}
+      -> "Remark 0.1. Test remark."
+    compile_snippet(preamble=..., body=...).pdf_text contains 'Remark 0.1. Test remark.'
+
+    Duplicate \newtheorem{remark}{Remark}[section] causes:
+      "! LaTeX Error: Command \remark already defined."
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheorem{remark}{Remark}[section]\n"
+        "\\newtheorem{remark}{Remark}[section]\n"
+        "\\newtheorem{thm}{Theorem}\n"
+        "\\begin{document}\n"
+        "\\begin{remark}Test\\end{remark}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \newtheorem{remark} must appear exactly once
+    assert minimal.count(r'\newtheorem{remark}') == 1, (
+        f"BUG-17: \\newtheorem{{remark}} appears {minimal.count(chr(92) + 'newtheorem{remark}')} times"
+    )
+    # Positive: \newtheorem{thm} must still be present (non-duplicate)
+    assert r'\newtheorem{thm}{Theorem}' in minimal
+    # Positive: full declaration preserved
+    assert r'\newtheorem{remark}{Remark}[section]' in minimal
