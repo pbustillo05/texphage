@@ -77,12 +77,37 @@ _NEWTHEOREM_RE = _re.compile(
 )
 
 
+# \excludeversion{name} and \includeversion{name} from the version package.
+# These define LaTeX environments by name in the preamble. Without them,
+# \begin{name}...\end{name} in the body fails with "Environment name undefined."
+# Also matches the optional-argument form \excludeversion[replacement]{name}.
+# The comment package provides \includecomment / \excludecomment (same semantics).
+# Docs: https://ctan.org/pkg/version, https://ctan.org/pkg/comment
+# MATCHES: \excludeversion{invisible}
+#          \excludeversion[(redacted)]{secret}
+#          \includeversion{visible}
+#          \includecomment{name}
+#          \excludecomment{name}
+# CAPTURES: full match only (no named groups needed)
+# LIMITATIONS:
+#   [observed] \excludeversion optional arg [text] captured correctly.
+#   [inferred] Nested braces in optional arg not supported (unlikely in practice).
+_VERSION_ENV_RE = _re.compile(
+    r'\\(?:exclude|include)(?:version|comment)'
+    r'\s*(?:\[[^\]]*\])?'   # optional [replacement text] (excludeversion only)
+    r'\s*\{[^}]*\}',
+    _re.DOTALL,
+)
+
+
 def build_minimal_preamble(raw_tex: str) -> str:
     """Return a minimal LaTeX preamble extracted from raw_tex.
 
     Keeps the \\documentclass declaration, all \\usepackage / \\usetikzlibrary
-    calls (with their options), and any front-matter commands (\\title, \\author,
-    \\date, \\address, \\email, \\keywords, \\subjclass, \\dedicatory, \\thanks)
+    calls (with their options), front-matter commands (\\title, \\author,
+    \\date, \\address, \\email, \\keywords, \\subjclass, \\dedicatory, \\thanks),
+    \\newtheorem declarations, and version/comment environment declarations
+    (\\excludeversion, \\includeversion, \\excludecomment, \\includecomment)
     that appear in the original preamble.  All custom macro definitions are
     stripped.
 
@@ -110,7 +135,11 @@ def build_minimal_preamble(raw_tex: str) -> str:
         if env_name not in _seen_nt:
             _seen_nt.add(env_name)
             newtheorems.append(m.group(0).strip())
-    parts = [docclass] + pkg_lines + newtheorems + front_matter
+    # BUG-18: version/comment package environment declarations must survive.
+    # \excludeversion{name} / \includeversion{name} define environments;
+    # stripping them causes "Environment name undefined" in the body.
+    version_envs = [m.group(0).strip() for m in _VERSION_ENV_RE.finditer(raw_preamble)]
+    parts = [docclass] + pkg_lines + newtheorems + version_envs + front_matter
     return '\n'.join(parts)
 
 
