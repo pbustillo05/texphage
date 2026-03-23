@@ -373,3 +373,94 @@ def test_build_minimal_preamble_deduplicates_newtheorem_BUG17():
     assert r'\newtheorem{thm}{Theorem}' in minimal
     # Positive: full declaration preserved
     assert r'\newtheorem{remark}{Remark}[section]' in minimal
+
+
+# ---------------------------------------------------------------------------
+# BUG-18 regression: version package \excludeversion / \includeversion
+# ---------------------------------------------------------------------------
+
+def test_build_minimal_preamble_preserves_excludeversion_BUG18():
+    r"""BUG-18: \excludeversion{name} and \includeversion{name} must be preserved.
+
+    The version package defines environments via \excludeversion{name} (hidden)
+    and \includeversion{name} (shown) in the preamble. Without them,
+    \begin{name}...\end{name} in the body fails with "Environment name undefined."
+
+    Playground verified:
+      \usepackage{version} + \excludeversion{invisible}
+      + \begin{invisible}hidden\end{invisible}Visible content.
+      -> "Visible content."
+    compile_snippet(preamble=..., body=...).pdf_text == 'Visible content.\n\n1'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{version}\n"
+        "\\excludeversion{invisible}\n"
+        "\\begin{document}\n"
+        "\\begin{invisible}hidden\\end{invisible}\n"
+        "Visible content.\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \excludeversion{invisible} must be in the minimal preamble
+    assert r'\excludeversion{invisible}' in minimal, (
+        f"BUG-18: \\excludeversion{{invisible}} stripped from minimal preamble:\n{minimal}"
+    )
+    # Positive: \usepackage{version} must still be present
+    assert r'\usepackage{version}' in minimal
+
+
+def test_build_minimal_preamble_preserves_includeversion_BUG18():
+    r"""BUG-18: \includeversion{name} must also be preserved.
+
+    Playground verified:
+      \usepackage{version} + \includeversion{visible}
+      + \begin{visible}Shown content.\end{visible}After.
+      -> "Shown content.After."
+    compile_snippet(preamble=..., body=...).pdf_text == 'Shown content.After.\n\n1'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{version}\n"
+        "\\includeversion{visible}\n"
+        "\\begin{document}\n"
+        "\\begin{visible}Shown content.\\end{visible}After.\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \includeversion{visible} must be in the minimal preamble
+    assert r'\includeversion{visible}' in minimal, (
+        f"BUG-18: \\includeversion{{visible}} stripped from minimal preamble:\n{minimal}"
+    )
+
+
+def test_build_minimal_preamble_preserves_excludeversion_with_optional_arg_BUG18():
+    r"""BUG-18: \excludeversion[replacement]{name} with optional arg must be preserved.
+
+    Playground verified:
+      \usepackage{version} + \excludeversion[(redacted)]{secret}
+      + \begin{secret}classified\end{secret}Public.
+      -> "(redacted)Public."
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{version}\n"
+        "\\excludeversion[(redacted)]{secret}\n"
+        "\\begin{document}\n"
+        "\\begin{secret}classified\\end{secret}Public.\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \excludeversion[(redacted)]{secret} must be preserved
+    assert r'\excludeversion[(redacted)]{secret}' in minimal, (
+        f"BUG-18: \\excludeversion with optional arg stripped:\n{minimal}"
+    )
