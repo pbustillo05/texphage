@@ -198,3 +198,55 @@ def test_build_minimal_preamble_article_no_title_in_preamble_BUG8():
     # No \\title in preamble for article class — must not hallucinate one
     assert r'\newcommand' not in minimal
     assert r'\documentclass{article}' in minimal
+
+
+def test_run_pipeline_raw_mode_applies_par_newline_BUG15():
+    """BUG-15: _run_pipeline raw mode must apply the BUG-12 \\par line-break fix.
+
+    _run_pipeline() in test_fidelity.py bypasses texphage() and builds
+    canonical_tex directly from demacro() output. Without applying the
+    \\par -> \\par\\n fix, the body is a single giant line that overflows
+    TeX's bufsize on large papers.
+
+    Playground verified: demacro() collapses paragraphs to '\\par ' without
+    newlines; pipeline.texphage() fixes this but _run_pipeline() did not.
+    """
+    import tempfile
+
+    from test_fidelity import _run_pipeline
+
+    body_lines = '\n\n'.join(
+        f'Paragraph number {i} with some filler content here.'
+        for i in range(50)
+    )
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        + body_lines + "\n"
+        "\\end{document}"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        raw_dir = tmp_path / 'raw'
+        raw_dir.mkdir()
+        (raw_dir / 'main.tex').write_text(raw_tex)
+        run_dir = tmp_path / 'run'
+        run_dir.mkdir()
+
+        _run_pipeline(raw_dir, run_dir, mode='raw')
+
+        output_tex = (run_dir / 'pipeline_output.tex').read_text()
+
+    # Positive: \\par must be followed by newline, not just a space
+    assert '\\par\n' in output_tex, (
+        "BUG-15: _run_pipeline raw mode does not apply \\par -> \\par\\n fix"
+    )
+    # Negative: no line in the body should be excessively long
+    body_start = output_tex.find('\\begin{document}')
+    body_end = output_tex.find('\\end{document}')
+    body = output_tex[body_start:body_end]
+    lines = body.splitlines()
+    max_len = max(len(l) for l in lines)
+    assert max_len < 10_000, (
+        f"Body has a line of {max_len} chars — bufsize overflow risk"
+    )
