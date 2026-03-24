@@ -78,7 +78,8 @@ _NEWTHEOREM_RE = _re.compile(
     r'\\newtheorem(?!style)\w*\*?'
     r'\s*\{(?P<nt_env>[^}]*)\}' # {environment-name} — captured for deduplication
     r'\s*(?:\[[^\]]*\])?'       # optional [numbered-within] before print-name
-    r'\s*\{[^}]*\}'             # {print-name}
+    # {print-name} — balanced braces for nested \ref{...} etc. (BUG-23)
+    r'\s*(?P<nt_title>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?P&nt_title))*(?<!\\)\})'
     r'\s*(?:\[[^\]]*\])?',      # optional [numbered-within] after print-name
     _re.DOTALL,
 )

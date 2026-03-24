@@ -1,0 +1,20 @@
+%% Regex Torture Test
+%% Each entry below is a minimal, non-failing LaTeX snippet that exercises
+%% an edge case previously caught by a bug report.  The test suite compiles
+%% the full file to verify that no regex change breaks these constructs.
+
+\documentclass{article}
+\usepackage{amsthm}
+
+%% From BUG-23: \newtheorem print-name with nested braces (\ref{...})
+\newtheorem*{def31}{Definition \ref{def:afb}}
+
+\newtheorem{theorem}{Theorem}
+
+\begin{document}
+
+\begin{theorem}
+Hello.
+\end{theorem}
+
+\end{document}
