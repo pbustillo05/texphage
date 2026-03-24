@@ -643,3 +643,69 @@ def test_newtheorem_nested_braces_BUG_23():
             assert line.count('{') == line.count('}'), (
                 f"BUG-23: unbalanced braces in newtheorem line: {line!r}"
             )
+
+
+def test_build_minimal_preamble_preserves_definecolor_BUG_24():
+    r"""BUG-24: \definecolor and \colorlet must be preserved in minimal preamble.
+
+    The xcolor package's \definecolor{name}{model}{spec} and \colorlet{name}{color}
+    define named colors used in the body via \textcolor, \color, \colorbox, etc.
+    Stripping them causes "Undefined color 'darkgreen'" errors.
+
+    Playground verified:
+      \usepackage{xcolor} + \definecolor{darkgreen}{rgb}{0,0.5,0}
+      + This is \textcolor{darkgreen}{dark green} text.
+      -> "This is dark green text."
+    compile_snippet(preamble=..., body=...).pdf_text == 'This is dark green text.\n\n1'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{xcolor}\n"
+        "\\definecolor{darkgreen}{rgb}{0,0.5,0}\n"
+        "\\colorlet{myblue}{blue}\n"
+        "\\begin{document}\n"
+        "This is \\textcolor{darkgreen}{dark green} text.\n"
+        "This is \\textcolor{myblue}{my blue} text.\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \definecolor{darkgreen}{rgb}{0,0.5,0} must be in minimal preamble
+    assert r'\definecolor{darkgreen}{rgb}{0,0.5,0}' in minimal, (
+        f"BUG-24: \\definecolor{{darkgreen}} stripped from minimal preamble:\n{minimal}"
+    )
+    # Positive: \colorlet{myblue}{blue} must be in minimal preamble
+    assert r'\colorlet{myblue}{blue}' in minimal, (
+        f"BUG-24: \\colorlet{{myblue}} stripped from minimal preamble:\n{minimal}"
+    )
+    # Positive: \usepackage{xcolor} must still be present
+    assert r'\usepackage{xcolor}' in minimal
+
+
+def test_build_minimal_preamble_preserves_DefineNamedColor_BUG_24():
+    r"""BUG-24: \DefineNamedColor (xcolor) must also be preserved.
+
+    Playground verified:
+      \usepackage{xcolor} + \DefineNamedColor{named}{MyRed}{rgb}{1,0,0}
+      + This is \textcolor{MyRed}{my red} text.
+      -> "This is my red text."
+    compile_snippet(preamble=..., body=...).pdf_text == 'This is my red text.\n\n1'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{xcolor}\n"
+        "\\DefineNamedColor{named}{MyRed}{rgb}{1,0,0}\n"
+        "\\begin{document}\n"
+        "This is \\textcolor{MyRed}{my red} text.\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \DefineNamedColor must be in minimal preamble
+    assert r'\DefineNamedColor{named}{MyRed}{rgb}{1,0,0}' in minimal, (
+        f"BUG-24: \\DefineNamedColor stripped from minimal preamble:\n{minimal}"
+    )
