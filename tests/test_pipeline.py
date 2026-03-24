@@ -509,3 +509,49 @@ def test_build_minimal_preamble_preserves_newtheoremrm_BUG20():
     )
     minimal2 = build_minimal_preamble(raw_tex2)
     assert r'\newtheorem{thm}{Theorem}' in minimal2
+
+
+# ---------------------------------------------------------------------------
+# BUG-21 regression: underscore in package name
+# ---------------------------------------------------------------------------
+
+def test_underscore_package_name_BUG21():
+    """BUG-21: find_pkg_lib must match package names with underscores.
+
+    Playground verified: \\newcommand{\\myMacro}{\\mathcal{M}} + $\\myMacro$ -> "M"
+    compile_snippet(preamble=..., body=...).pdf_text contains 'M'
+    """
+    from texphage.find_packages import find_explicit_package_calls
+
+    preamble = (
+        r'\usepackage{amsmath}' + '\n'
+        r'\usepackage{my_defs}' + '\n'
+        r'\usepackage{defs_pp1}' + '\n'
+        r'\usepackage{a_b_c}' + '\n'
+    )
+    calls = find_explicit_package_calls(preamble)
+    all_names = [n for c in calls for n in c.names]
+
+    # Positive: packages with underscores must be found
+    assert 'my_defs' in all_names, f"my_defs not found in {all_names}"
+    assert 'defs_pp1' in all_names, f"defs_pp1 not found in {all_names}"
+    assert 'a_b_c' in all_names, f"a_b_c not found in {all_names}"
+
+    # Negative: normal packages must still work
+    assert 'amsmath' in all_names, f"amsmath not found in {all_names}"
+
+
+def test_underscore_package_in_minimal_preamble_BUG21():
+    """BUG-21: build_minimal_preamble must preserve \\usepackage{pkg_with_underscore}."""
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = doc(
+        r'\usepackage{amsmath}' + '\n'
+        r'\usepackage{my_defs}' + '\n'
+        r'\newcommand{\foo}{bar}',
+        r'\foo',
+    )
+    minimal = build_minimal_preamble(raw_tex)
+    assert r'\usepackage{my_defs}' in minimal, (
+        f"\\usepackage{{my_defs}} missing from minimal preamble:\n{minimal}"
+    )
