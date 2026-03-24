@@ -12,7 +12,7 @@ compiled and understood with a minimal preamble.
 
 ```LaTeX
 \documentclass[...]{...}
-% <minimal list of \usepackage[...]{...} commands>
+% <minimal preamble containing mostly a list of \usepackage[...]{...} commands>
 \begin{document}
 % <1-line demacro'ed body>
 \end{document}

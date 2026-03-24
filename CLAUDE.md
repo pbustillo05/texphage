@@ -49,9 +49,18 @@ Claude Code will delegate automatically based on those trigger phrases.
 
 ## Always-on rules
 
+- **"Write a note / write a prompt"** → always create or update a file in
+  `.claude/notes/`. Load the `write-note` skill when this is requested.
 - Write a failing test before touching any code.
 - Add `MATCHES/CAPTURES/LIMITATIONS` comment before touching any regex.
   Load the `regex-danger-zone` skill before any regex change.
+- **All string pattern-finding and pattern-replacement must use `regex`.**
+  Never use `str.find()`, `.startswith()`, `.endswith()`, `.isalpha()`,
+  `.isdigit()`, `.index()`, character loops, or manual brace-counting to
+  detect structure in a LaTeX string. If you need to find a pattern in a
+  string, write a compiled `regex` pattern with a `MATCHES/CAPTURES/LIMITATIONS`
+  comment. The only exemptions are non-structural utility operations (e.g.,
+  stripping whitespace from a shell command result, splitting a Python path).
 - Never commit `tests/runs/` content (except `tests/runs/HISTORY.md`), tarballs, or compiled PDFs.
 - Run `pytest tests/ -v && ruff check src/ && mypy src/texphage/`
   after every change before committing.

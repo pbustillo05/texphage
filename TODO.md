@@ -12,6 +12,36 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 
 ## Proposed
 
+*   **[REFACTOR] Replace all non-regex string pattern-finding with regex**
+
+    **Motivation:** The codebase rule is that all pattern-finding and pattern-replacement
+    in strings must go through the `regex` module for homogeneity, auditability, and
+    consistency with the MATCHES/CAPTURES/LIMITATIONS comment convention.
+
+    The following production functions currently use ad-hoc string operations for
+    structural pattern detection and must be migrated to regex:
+
+    | Function | File | Current technique |
+    |---|---|---|
+    | `_strip_par_in_groups` | `src/texphage/demacro.py` | Character-by-character loop + slicing to detect `\par`, `\begin`, `\end`, brace depth |
+    | `_def_param_pattern` | `src/texphage/demacro.py` | Character loop over `#N` placeholders and delimiter spans |
+    | `_strip_delimiters` | `src/texphage/demacro.py` | Index access + char comparison to detect outer `{}`/`[]` |
+    | `build_minimal_preamble` | `src/texphage/pipeline.py` | `str.find()` to locate `\begin{document}` |
+    | `find_attachments` | `src/texphage/pipeline.py` | `str.endswith()` / `str.split(',')` for file-extension and bibliography parsing |
+
+    **Plan:**
+    1.  For each function, write a regex equivalent (with `MATCHES/CAPTURES/LIMITATIONS`
+        comment) that produces identical results on the existing test suite.
+    2.  Replace the ad-hoc implementation, run `pytest tests/ -v`, confirm green.
+    3.  The hardest case is `_strip_par_in_groups`: it tracks brace depth and math
+        environments, which requires a stateful approach — consider using a regex-driven
+        tokenizer loop rather than a single compiled pattern.
+
+    **Acceptance criterion:** `grep -rn 'str\.find\|\.startswith\|\.endswith\|\.isalpha\|\.isdigit\|\.index(' src/texphage/` returns zero hits used for structural pattern detection (utility uses such as path manipulation are exempt).
+
+    **Priority:** LOW — correctness is unaffected; this is a code-quality / convention
+    alignment task.
+
 *   **[INFRASTRUCTURE] RAG pipeline for LaTeX package sources**
 
     **Motivation:** When the testing-agent or coding-agent encounters an
