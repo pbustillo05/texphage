@@ -464,3 +464,48 @@ def test_build_minimal_preamble_preserves_excludeversion_with_optional_arg_BUG18
     assert r'\excludeversion[(redacted)]{secret}' in minimal, (
         f"BUG-18: \\excludeversion with optional arg stripped:\n{minimal}"
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG-20 regression: class-specific theorem-env definers (e.g. \newtheoremrm)
+# ---------------------------------------------------------------------------
+
+def test_build_minimal_preamble_preserves_newtheoremrm_BUG20():
+    r"""BUG-20: \newtheoremrm and other class-specific theorem-env definers
+    must not be stripped by build_minimal_preamble.
+
+    tac.cls provides \newtheoremrm (roman-body theorems). The pattern
+    _NEWTHEOREM_RE only matched \newtheorem and \newtheorem*, so
+    \newtheoremrm{rem}{Remark} was stripped and \begin{rem} became undefined.
+
+    Playground verified: \newtheorem{rem}{Remark} + \begin{rem}...\end{rem}
+      -> "Remark 1. This is a remark."
+    compile_snippet(preamble=..., body=...).pdf_text == 'Remark 1. This is a remark.\n\n1'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheoremrm{rem}{Remark}\n"
+        "\\begin{document}\n"
+        "\\begin{rem}This is a remark.\\end{rem}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \newtheoremrm{rem}{Remark} must be in the minimal preamble
+    assert r'\newtheoremrm{rem}{Remark}' in minimal, (
+        f"BUG-20: \\newtheoremrm{{rem}}{{Remark}} stripped from preamble:\n{minimal}"
+    )
+    # Standard \newtheorem must still work
+    raw_tex2 = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheorem{thm}{Theorem}\n"
+        "\\begin{document}\n"
+        "\\begin{thm}Hello\\end{thm}\n"
+        "\\end{document}"
+    )
+    minimal2 = build_minimal_preamble(raw_tex2)
+    assert r'\newtheorem{thm}{Theorem}' in minimal2
