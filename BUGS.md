@@ -677,4 +677,4 @@ status (OPEN / IN_PROGRESS / FIXED).
   the `\usepackage{...}` call is preserved so TeX can load the file at compile time.
 - **first_seen**: 2026-03-23
 - **last_seen**: 2026-03-23
-- **status**: OPEN
+- **status**: IN_PROGRESS
