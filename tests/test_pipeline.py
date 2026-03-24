@@ -555,3 +555,44 @@ def test_underscore_package_in_minimal_preamble_BUG21():
     assert r'\usepackage{my_defs}' in minimal, (
         f"\\usepackage{{my_defs}} missing from minimal preamble:\n{minimal}"
     )
+
+
+def test_newtheoremstyle_not_captured_BUG_22():
+    r"""BUG-22: \newtheoremstyle must NOT be matched by _NEWTHEOREM_RE.
+
+    Playground verified:
+        \usepackage{amsthm}
+        \newtheoremstyle{TheoremNum}{}{}{}{}{\bfseries}{.}{ }{}
+        \theoremstyle{TheoremNum}
+        \newtheorem{thm}{Theorem}
+        \newtheorem{example}[thm]{Example}
+        + \begin{thm}Hello.\end{thm}\begin{example}An example.\end{example}
+        -> "Theorem 1. Hello.\nExample 2. An example."
+    compile_snippet(...).pdf_text contains 'Theorem 1. Hello.'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheoremstyle{TheoremNum}\n"
+        "  {}{}{}{}{\\bfseries}{.}{ }{}\n"
+        "\\theoremstyle{TheoremNum}\n"
+        "\\newtheorem{thm}{Theorem}\n"
+        "\\newtheorem{example}[thm]{Example}\n"
+        "\\begin{document}\n"
+        "\\begin{thm}Hello.\\end{thm}\n"
+        "\\begin{example}An example.\\end{example}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: real \newtheorem declarations must be present
+    assert r'\newtheorem{thm}{Theorem}' in minimal
+    assert r'\newtheorem{example}[thm]{Example}' in minimal
+
+    # Negative: \newtheoremstyle must NOT be partially captured as a \newtheorem
+    # The env name "TheoremNum" should not appear as a newtheorem env
+    assert 'TheoremNum' not in minimal, (
+        f"\\newtheoremstyle was incorrectly matched as \\newtheorem:\n{minimal}"
+    )
