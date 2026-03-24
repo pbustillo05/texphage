@@ -1,8 +1,9 @@
 """Unfold a multi-file LaTeX project into a single flat .tex string.
 
 The main entry point is unfold(). It recursively resolves \\input, \\include,
-\\import, \\subimport, and \\subfile by reading referenced files and substituting
-their content in place. Images and other non-.tex assets are left as-is.
+\\import, \\subimport, \\inputfrom, \\subinputfrom, \\subfile, and
+\\InputIfFileExists by reading referenced files and substituting their content
+in place. Images and other non-.tex assets are left as-is.
 
 This module has NO dependency on network access, archive extraction, or macro
 expansion. Its only inputs are local filesystem paths.
@@ -20,17 +21,23 @@ logger = logging.getLogger(__name__)
 # _FIND_INPUT — the single pattern that recognises all supported file-inclusion directives.
 #
 # MATCHES (one named branch per inclusion form):
-#   input      → \input{path}
-#   input_bare → \input path  (braceless, plain-TeX style; BUG-14)
-#   include    → \include{path}          (.tex auto-appended; body wrapped in \clearpage)
-#   usepkg     → \usepackage{pkg}        (only when inline_local_packages=True)
-#   import_    → \import{dir}{file}      (import pkg; dir is absolute/root-relative)
-#   subimport  → \subimport{dir}{file}   (import pkg; dir is relative to current file)
-#   subfile    → \subfile{path} or \subfileinclude{path}   (subfiles pkg; own preamble stripped)
+#   input             → \input{path}
+#   input_bare        → \input path  (braceless, plain-TeX style; BUG-14)
+#   include           → \include{path}          (.tex auto-appended; body wrapped in \clearpage)
+#   usepkg            → \usepackage{pkg}        (only when inline_local_packages=True)
+#   import_           → \import{dir}{file}      (import pkg; dir is absolute/root-relative)
+#   subimport         → \subimport{dir}{file}   (import pkg; dir is relative to current file)
+#   inputfrom         → \inputfrom{dir}{file}   (import pkg; alias for \import)
+#   subinputfrom      → \subinputfrom{dir}{file}(import pkg; alias for \subimport)
+#   subfile           → \subfile{path} or \subfileinclude{path}   (subfiles pkg; own preamble stripped)
+#   inputiffileexists → \InputIfFileExists{file}{true}{false}  (LaTeX2e kernel; conditional input)
 #
 # CAPTURES (named groups):
 #   input_path, input_bare_path, include_path, usepkg_path,
-#   import_dir, import_file, subimport_dir, subimport_file, subfile_path
+#   import_dir, import_file, subimport_dir, subimport_file,
+#   inputfrom_dir, inputfrom_file, subinputfrom_dir, subinputfrom_file,
+#   subfile_path,
+#   iife_file, iife_true, iife_false
 #
 # LIMITATIONS:
 #   [observed] The ^[^%\n]* guard prevents matching directives that start a line with
@@ -45,8 +52,13 @@ logger = logging.getLogger(__name__)
 #   [observed] \usepackage inlining is disabled by default (inline_local_packages=False)
 #              and only resolves packages found as local .sty files in the project
 #              directory; system packages are left as \usepackage{...}.
-#   [inferred] \InputIfFileExists{file}{true}{false} not handled — conditional input
-#              from the LaTeX2e kernel; the false-branch is silently ignored (source2e §Input).
+#   [observed] \InputIfFileExists true-code and false-code arguments are captured with
+#              .*? (non-greedy); arguments containing nested braces (e.g. \def\foo{bar})
+#              will not be captured correctly. This covers the common arXiv idiom where
+#              both branches are empty or contain simple tokens only.
+#   [observed] \InputIfFileExists: when the file exists, true-code is emitted BEFORE the
+#              file content, matching LaTeX source2e semantics (#2 runs before \@@input).
+#   [inferred] The `import` package's `\includefrom` and `\subincludefrom` are not handled.
 #   [inferred] \input@path, \graphicspath and similar path-modifying commands not
 #              tracked; unfold always resolves paths relative to the current file's
 #              directory, which matches standard LaTeX behaviour for most documents.
@@ -59,13 +71,16 @@ logger = logging.getLogger(__name__)
 _FIND_INPUT = re.compile(r"""
     ^[^%\n]*
     (?:
-        (?P<input>      \\input      \s*\{\s*(?P<input_path>      .*?)\s*\})  |
-        (?P<input_bare> \\input      \s+(?P<input_bare_path>[^\s\{\}%]+))     |
-        (?P<include>    \\include    \s*\{\s*(?P<include_path>    .*?)\s*\})  |
-        (?P<usepkg>     \\usepackage \s*\{\s*(?P<usepkg_path>     .*?)\s*\})  |
-        (?P<import_>    \\import     \s*\{\s*(?P<import_dir>      .*?)\s*\}\s*\{\s*(?P<import_file>    .*?)\s*\})  |
-        (?P<subimport>  \\subimport  \s*\{\s*(?P<subimport_dir>   .*?)\s*\}\s*\{\s*(?P<subimport_file> .*?)\s*\})  |
-        (?P<subfile>    \\subfile(?:include)?\s*\{\s*(?P<subfile_path>.*?)\s*\})
+        (?P<input>             \\input           \s*\{\s*(?P<input_path>        .*?)\s*\})  |
+        (?P<input_bare>        \\input           \s+(?P<input_bare_path>[^\s\{\}%]+))       |
+        (?P<include>           \\include         \s*\{\s*(?P<include_path>      .*?)\s*\})  |
+        (?P<usepkg>            \\usepackage      \s*\{\s*(?P<usepkg_path>       .*?)\s*\})  |
+        (?P<import_>           \\import          \s*\{\s*(?P<import_dir>        .*?)\s*\}\s*\{\s*(?P<import_file>       .*?)\s*\})  |
+        (?P<subimport>         \\subimport       \s*\{\s*(?P<subimport_dir>     .*?)\s*\}\s*\{\s*(?P<subimport_file>    .*?)\s*\})  |
+        (?P<inputfrom>         \\inputfrom       \s*\{\s*(?P<inputfrom_dir>     .*?)\s*\}\s*\{\s*(?P<inputfrom_file>    .*?)\s*\})  |
+        (?P<subinputfrom>      \\subinputfrom    \s*\{\s*(?P<subinputfrom_dir>  .*?)\s*\}\s*\{\s*(?P<subinputfrom_file> .*?)\s*\})  |
+        (?P<subfile>           \\subfile(?:include)?\s*\{\s*(?P<subfile_path>   .*?)\s*\})  |
+        (?P<inputiffileexists> \\InputIfFileExists\s*\{\s*(?P<iife_file>        .*?)\s*\}\s*\{\s*(?P<iife_true>         .*?)\s*\}\s*\{\s*(?P<iife_false>.*?)\s*\})
     )
 """, re.MULTILINE | re.VERBOSE)
 
@@ -187,16 +202,25 @@ def _make_file_replacement(
             # \include = \input + \clearpage wrapper (creates chapter page breaks)
             return _prefix(match, 'include') + '\n\\clearpage\n' + body + '\n\\clearpage\n'
 
-        elif match.group('import_') or match.group('subimport'):
+        elif match.group('import_') or match.group('subimport') \
+                or match.group('inputfrom') or match.group('subinputfrom'):
             # \import{dir}{file}: dir absolute/root-relative; changes search root.
             # \subimport{dir}{file}: dir relative to current file's directory.
+            # \inputfrom{dir}{file}: exact alias for \import (import pkg).
+            # \subinputfrom{dir}{file}: exact alias for \subimport (import pkg).
             # Docs: https://ctan.org/pkg/import
             if match.group('import_'):
                 imp_dir, imp_file = match.group('import_dir'), match.group('import_file')
                 grp = 'import_'
-            else:
+            elif match.group('subimport'):
                 imp_dir, imp_file = match.group('subimport_dir'), match.group('subimport_file')
                 grp = 'subimport'
+            elif match.group('inputfrom'):
+                imp_dir, imp_file = match.group('inputfrom_dir'), match.group('inputfrom_file')
+                grp = 'inputfrom'
+            else:
+                imp_dir, imp_file = match.group('subinputfrom_dir'), match.group('subinputfrom_file')
+                grp = 'subinputfrom'
             if '.' not in os.path.basename(imp_file):
                 imp_file += '.tex'
             full_dir = os.path.realpath(os.path.join(directory, imp_dir))
@@ -236,6 +260,33 @@ def _make_file_replacement(
             return _prefix(match, 'subfile') + unfold(os.path.dirname(full), main=content,
                                                       _visited=visited | {full})
 
+        elif match.group('inputiffileexists'):
+            # \InputIfFileExists{file}{true}{false}: LaTeX2e kernel conditional input.
+            # If file exists: emit true-code first, then the recursively unfolded file
+            # content (LaTeX source2e order: true-code (#2) runs before \@@input).
+            # If not found: emit only false-code (recursively unfolded for nested includes).
+            iife_path = match.group('iife_file')
+            iife_true = match.group('iife_true')
+            iife_false = match.group('iife_false')
+            if '.' not in os.path.basename(iife_path):
+                iife_path += '.tex'
+            full = os.path.realpath(os.path.join(directory, iife_path))
+            if full in visited:
+                logger.warning("Circular \\InputIfFileExists: %s — leaving unexpanded", iife_path)
+                return match.group(0)
+            try:
+                content = open(full, encoding='utf-8').read()
+            except FileNotFoundError:
+                # File not found: return false-code, recursively processed.
+                return re.sub(_FIND_INPUT,
+                              _make_file_replacement(directory, visited, inline_local_packages),
+                              iife_false)
+            file_content = unfold(os.path.dirname(full), main=content, _visited=visited | {full})
+            true_processed = re.sub(_FIND_INPUT,
+                                    _make_file_replacement(directory, visited, inline_local_packages),
+                                    iife_true)
+            return true_processed + file_content
+
         elif match.group('usepkg') and inline_local_packages:
             result = ''
             for pkg in re.finditer(r'[a-z0-9\+\-\.]+', match.group('usepkg_path')):
@@ -261,9 +312,10 @@ def unfold(
 ) -> str:
     """Flatten a multi-file LaTeX project into a single .tex string.
 
-    Resolves \\input, \\include, \\import, \\subimport, and \\subfile
-    recursively. Safe against circular includes (second occurrence left
-    unexpanded with a warning logged).
+    Resolves \\input, \\include, \\import, \\subimport, \\inputfrom,
+    \\subinputfrom, \\subfile, and \\InputIfFileExists recursively.
+    Safe against circular includes (second occurrence left unexpanded
+    with a warning logged).
 
     Args:
         directory: Project directory; relative paths resolve here.

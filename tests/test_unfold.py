@@ -105,3 +105,98 @@ def test_braceless_input_BUG14(tmp_path):
     assert 'local package content' in result, (
         f'Braceless \\input local_pkg not resolved. Result: {result!r}'
     )
+
+
+# --- \InputIfFileExists tests ---
+
+def test_inputiffileexists_file_found(tmp_path):
+    r"""\InputIfFileExists: when file exists, true-code and file content must both appear."""
+    (tmp_path / 'config.tex').write_text('config content here')
+    main = r'\InputIfFileExists{config.tex}{true code}{false code}'
+    result = unfold(str(tmp_path), main=main)
+    assert 'config content here' in result
+    assert 'true code' in result
+    assert 'false code' not in result
+
+
+def test_inputiffileexists_file_missing(tmp_path):
+    r"""\InputIfFileExists: when file is missing, only false-code is returned."""
+    main = r'\InputIfFileExists{missing.tex}{true code}{false code}'
+    result = unfold(str(tmp_path), main=main)
+    assert 'false code' in result
+    assert 'true code' not in result
+    assert 'missing.tex' not in result
+
+
+def test_inputiffileexists_true_code_before_file_content(tmp_path):
+    r"""\InputIfFileExists: true-code must appear BEFORE file content (LaTeX semantics)."""
+    (tmp_path / 'body.tex').write_text('FILE BODY')
+    main = r'\InputIfFileExists{body.tex}{SETUP CODE}{}'
+    result = unfold(str(tmp_path), main=main)
+    assert result.index('SETUP CODE') < result.index('FILE BODY')
+
+
+def test_inputiffileexists_empty_true_branch(tmp_path):
+    r"""\InputIfFileExists with empty true-code — common idiom."""
+    (tmp_path / 'extra.tex').write_text('extra content')
+    main = r'\InputIfFileExists{extra.tex}{}{fallback}'
+    result = unfold(str(tmp_path), main=main)
+    assert 'extra content' in result
+    assert 'fallback' not in result
+
+
+def test_inputiffileexists_recursive_in_included_file(tmp_path):
+    r"""\InputIfFileExists: included file is recursively unfolded."""
+    (tmp_path / 'inner.tex').write_text(r'\input{leaf}')
+    (tmp_path / 'leaf.tex').write_text('leaf content')
+    main = r'\InputIfFileExists{inner.tex}{}{}'
+    result = unfold(str(tmp_path), main=main)
+    assert 'leaf content' in result
+
+
+# --- \inputfrom and \subinputfrom tests ---
+
+def test_inputfrom_basic(tmp_path):
+    r"""\inputfrom{dir}{file} resolves like \import — sets dir as search root."""
+    subdir = tmp_path / 'chapters'
+    subdir.mkdir()
+    (subdir / 'ch1.tex').write_text('chapter one content')
+    main = r'\inputfrom{chapters/}{ch1}'
+    result = unfold(str(tmp_path), main=main)
+    assert 'chapter one content' in result
+
+
+def test_subinputfrom_basic(tmp_path):
+    r"""\subinputfrom{dir}{file} resolves like \subimport — dir relative to current file."""
+    subdir = tmp_path / 'sections'
+    subdir.mkdir()
+    (subdir / 'sec1.tex').write_text('section one content')
+    main = r'\subinputfrom{sections/}{sec1}'
+    result = unfold(str(tmp_path), main=main)
+    assert 'section one content' in result
+
+
+def test_inputfrom_missing_file_leaves_command(tmp_path):
+    r"""\inputfrom with missing file leaves the command unexpanded (like \input)."""
+    main = r'\inputfrom{chapters/}{missing}'
+    result = unfold(str(tmp_path), main=main)
+    assert r'\inputfrom' in result
+
+
+def test_inputfrom_tex_extension_auto_appended(tmp_path):
+    r"""\inputfrom auto-appends .tex when no extension given."""
+    subdir = tmp_path / 'sub'
+    subdir.mkdir()
+    (subdir / 'file.tex').write_text('auto ext content')
+    result = unfold(str(tmp_path), main=r'\inputfrom{sub/}{file}')
+    assert 'auto ext content' in result
+
+
+def test_subinputfrom_nested_resolution(tmp_path):
+    r"""\subinputfrom: file in subdir can itself use relative includes."""
+    subdir = tmp_path / 'parts'
+    subdir.mkdir()
+    (subdir / 'part.tex').write_text(r'\input{detail}')
+    (subdir / 'detail.tex').write_text('nested detail')
+    result = unfold(str(tmp_path), main=r'\subinputfrom{parts/}{part}')
+    assert 'nested detail' in result

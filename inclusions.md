@@ -16,51 +16,35 @@
 | `\usepackage{pkg}` | LaTeX2e | `usepkg` | PARTIAL — local `.sty` only, opt-in flag required. See `unfold.py`. |
 | `\import{dir}{file}` | `import` | `import_` | COVERED — see `unfold.py` |
 | `\subimport{dir}{file}`| `import` | `subimport` | COVERED — see `unfold.py` |
+| `\inputfrom{dir}{file}`| `import` | `inputfrom` | COVERED — see `unfold.py` |
+| `\subinputfrom{dir}{file}`| `import` | `subinputfrom` | COVERED — see `unfold.py` |
 | `\subfile{path}` | `subfiles` | `subfile` | COVERED — see `unfold.py` |
 | `\subfileinclude{path}`| `subfiles` | `subfile` | COVERED — see `unfold.py` |
+| `\InputIfFileExists{f}{t}{e}` | LaTeX2e kernel | `inputiffileexists` | COVERED — see `unfold.py` |
 
 ---
 
 ## Part 2: Not yet implemented — ordered by arXiv ROI
 
-### HIGH Priority
-
-#### `\InputIfFileExists`
-
-**Package:** LaTeX2e kernel · [source2e §Input](https://ctan.org/pkg/source2e)
-**Priority:** HIGH
-**Status:** NOT COVERED
-
-**Full syntax:**
-`\InputIfFileExists{<filename>}{<true-code>}{<false-code>}`
-
-**Semantics:** Tests whether `<filename>` exists on the TeX search path. If it does, TeX inputs it and then runs `<true-code>`; otherwise it runs `<false-code>`. The file content, if loaded, becomes part of the document body.
-
-**arXiv note:** Used internally by many packages to load optional configuration or compatibility files. Authors rarely write it directly, but it appears in project-level `.sty` files that are unfolded when `inline_local_packages=True`. Its absence is a significant correctness gap for such projects.
-
-**Architectural note:** Requires two-branch logic (file found / not found). The regex needs to capture all three arguments. The replacement function should attempt to resolve and open the file: on success, it should return the unfolded file content followed by the `<true-code>`; on `FileNotFoundError`, it should return only the `<false-code>`. Both `<true-code>` and `<false-code>` may contain further inclusion commands and must be recursively processed.
-
----
-
 ### MEDIUM Priority
 
-#### `\inputfrom` and `\subinputfrom`
+#### `\includefrom` and `\subincludefrom`
 
 **Package:** `import` · [import.pdf §2](https://ctan.org/pkg/import)
 **Priority:** MEDIUM
 **Status:** NOT COVERED
 
 **Full syntax:**
-`\inputfrom{<dir>}{<file>}`
-`\subinputfrom{<dir>}{<file>}`
+`\includefrom{<dir>}{<file>}`
+`\subincludefrom{<dir>}{<file>}`
 
-**Semantics:** These are variants of `\import` and `\subimport` that behave like `\input` (i.e., no `\clearpage` wrapper like `\include`).
-- `\inputfrom`: sets the search path to `<dir>` for the duration of the input.
-- `\subinputfrom`: is the same as `\subimport`. The `import` package documentation itself says `\subinputfrom` is just an alias for `\subimport`.
+**Semantics:** These are variants of `\import` and `\subimport` that behave like `\include` (i.e., they wrap the included content in `\clearpage`).
+- `\includefrom`: sets the search path to `<dir>` for the duration of the inclusion. It is an `\include` version of `\import`.
+- `\subincludefrom`: is the `\include` version of `\subimport`.
 
-**arXiv note:** Less common than `\import` and `\subimport`, which are already implemented. Supporting these would complete coverage for the `import` package.
+**arXiv note:** Less common than `\import` and `\subimport`, but their absence represents an incomplete implementation of the `import` package, which is frequently used in multi-file projects.
 
-**Architectural note:** The logic for `\subinputfrom` can be aliased directly to the existing `subimport` handler. The logic for `\inputfrom` is nearly identical to the existing `import_` handler. This is a low-effort, high-consistency addition.
+**Architectural note:** The logic would be a near-copy of the existing `import_` and `subimport` handlers, but wrapping the unfolded content in `\clearpage\n...\n\clearpage`, just as the `include` handler does for `\input`.
 
 ---
 
