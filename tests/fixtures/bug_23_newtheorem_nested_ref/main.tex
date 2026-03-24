@@ -1,0 +1,17 @@
+\documentclass{article}
+\usepackage{amsthm}
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem*{def31}{Definition \ref{def:afb}}
+\newtheorem*{def41}{Definition \ref{def:chaincomplex}}
+\begin{document}
+\begin{theorem}
+  Hello world.
+\end{theorem}
+\begin{definition}\label{def:afb}
+  A definition.
+\end{definition}
+\begin{def31}
+  Restatement of the first definition.
+\end{def31}
+\end{document}

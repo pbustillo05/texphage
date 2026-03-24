@@ -1,0 +1,16 @@
+% The lipics-v2021 class (and others like beamer, theorem.sty) already
+% define common theorem environments such as {theorem}, {lemma}, etc.
+% When build_minimal_preamble copies \newtheorem{theorem}{Theorem} from the
+% preamble, the class's pre-existing definition causes:
+%   ! LaTeX Error: Command \theorem already defined.
+% Minimal reproduction using the acm class which also predefines {theorem}:
+\documentclass{article}
+\usepackage{amsthm}
+% Simulate the bug: define theorem twice (once the class would, once the paper)
+\newtheorem{theorem}{Theorem}
+\newtheorem{theorem}{Theorem}  % duplicate causes the error
+\begin{document}
+\begin{theorem}
+  Hello world.
+\end{theorem}
+\end{document}

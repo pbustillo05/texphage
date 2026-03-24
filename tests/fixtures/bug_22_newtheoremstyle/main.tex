@@ -1,0 +1,15 @@
+\documentclass{article}
+\usepackage{amsthm}
+\newtheoremstyle{TheoremNum}
+  {}{}{}{}{\bfseries}{.}{ }{}
+\theoremstyle{TheoremNum}
+\newtheorem{thm}{Theorem}
+\newtheorem{example}[thm]{Example}
+\begin{document}
+\begin{thm}
+  Hello world.
+\end{thm}
+\begin{example}
+  An example.
+\end{example}
+\end{document}

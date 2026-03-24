@@ -679,3 +679,151 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **last_seen**: 2026-03-23
 - **fixed**: 2026-03-23
 - **status**: FIXED
+
+---
+
+## BUG-22: `_NEWTHEOREM_RE` incorrectly matches `\newtheoremstyle` — preamble corrupted
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: other
+- **failure_mode**: C
+- **seen_in**: [2601.17345] — paper uses `\newtheoremstyle{TheoremNum}{}{}{}{}{}{}{}{}`
+  followed by `\newtheorem{example}[theorem]{Example}`; pipeline output fails with
+  `! Missing number, treated as zero` at `\newtheorem{example}[theorem]{Example}`
+- **description**: `_NEWTHEOREM_RE` in `pipeline.py` uses the pattern `\\newtheorem\w*\*?`
+  which matches any token starting with `\newtheorem`. This incorrectly matches
+  `\newtheoremstyle`, which takes 9 mandatory brace-delimited arguments. The regex
+  captures only the first two (`{TheoremNum}` as env-name and `{}` as print-name) and
+  leaves the remaining 7 `{}{}{}{}{}{}{}` as orphan tokens in the preamble. These orphan
+  tokens cause `\newtheorem{example}[theorem]{Example}` to fail with "Missing number"
+  because TeX parses one of the orphan `{}` tokens as the optional counter argument. The
+  fix requires excluding `\newtheoremstyle` from the match — the pattern should use a
+  negative lookahead `\\newtheorem(?!style)\w*\*?`.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `_NEWTHEOREM_RE` (line 73);
+  `build_minimal_preamble()` `newtheorems` list comprehension
+- **relevant_latex_docs**: https://texdoc.org/pkg/amsthm (§3 — `\newtheoremstyle`
+  takes 9 arguments: spaceabove, spacebelow, bodyfont, indent, headfont, headpunct,
+  headspace, name, postheadhook)
+- **reproduction**: `tests/fixtures/bug_22_newtheoremstyle/main.tex`
+  ```latex
+  \documentclass{article}
+  \usepackage{amsthm}
+  \newtheoremstyle{TheoremNum}
+    {}{}{}{}{\bfseries}{.}{ }{}
+  \theoremstyle{TheoremNum}
+  \newtheorem{thm}{Theorem}
+  \newtheorem{example}[thm]{Example}
+  ```
+  After `build_minimal_preamble`, `\newtheoremstyle{TheoremNum}{}` is captured (2/9
+  args), leaving `{}{}{}{}{}{}{}` as orphans → `\newtheorem{example}[thm]{Example}` fails
+  with `Missing number`.
+- **first_seen**: 2026-03-24
+- **last_seen**: 2026-03-24
+- **status**: OPEN
+
+---
+
+## BUG-23: `_NEWTHEOREM_RE` mishandles `\newtheorem*{env}{Title with \ref{...}}` — closing brace lost
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: other
+- **failure_mode**: C
+- **seen_in**: [2602.04425] — paper uses `\newtheorem*{def31}{Definition \ref{def:afb}}`
+  etc.; pipeline output fails with `! Paragraph ended before \@tempa was complete` because
+  the closing brace of the title argument is missing
+- **description**: The `_NEWTHEOREM_RE` pattern uses `\{[^}]*\}` for the print-name
+  argument. The character class `[^}]` matches everything except `}`, so when the title
+  contains `\ref{def:afb}`, the pattern stops at the first `}` — the closing brace of the
+  `\ref{...}` — not the actual closing brace of the title argument. The result is that the
+  captured match is `\newtheorem*{def31}{Definition \ref{def:afb}` (missing the final `}`),
+  and when this is written to the minimal preamble the `\newtheorem*` declaration has an
+  unclosed brace, causing a "Paragraph ended before \@tempa" error at compile time. The fix
+  is to replace `\{[^}]*\}` with a balanced-brace group (using the `(?P<arg>...)` recursive
+  pattern already used elsewhere in `pipeline.py`) for the print-name argument.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `_NEWTHEOREM_RE` (line 77):
+  `r'\s*\{[^}]*\}'` for the print-name argument
+- **relevant_latex_docs**: https://texdoc.org/pkg/amsthm; https://ctan.org/pkg/hyperref
+  (`\ref{...}` expands to a brace-delimited label, placing nested braces inside the
+  print-name argument)
+- **reproduction**: `tests/fixtures/bug_23_newtheorem_nested_ref/main.tex`
+  ```latex
+  \documentclass{article}
+  \usepackage{amsthm}
+  \newtheorem{theorem}{Theorem}
+  \newtheorem*{def31}{Definition \ref{def:afb}}
+  ```
+  `_NEWTHEOREM_RE.search(...)` matches `\newtheorem*{def31}{Definition \ref{def:afb}`
+  (missing closing brace) → pipeline output preamble has unclosed brace → compile error.
+- **first_seen**: 2026-03-24
+- **last_seen**: 2026-03-24
+- **status**: OPEN
+
+---
+
+## BUG-24: `build_minimal_preamble` strips `\definecolor`/`\colorlet` — undefined colors in body
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: other
+- **failure_mode**: C
+- **seen_in**: [2602.14332] — paper uses `\colorlet{darkgreen}{...}` in preamble;
+  body uses `\textcolor{darkgreen}{...}`; pipeline output fails with
+  `! Package xcolor Error: Undefined color 'darkgreen'.`
+- **description**: `build_minimal_preamble` keeps only `\documentclass`, `\usepackage`,
+  `\usetikzlibrary`, `\newtheorem`, front-matter, and `\excludeversion`/`\includeversion`.
+  It strips `\definecolor{name}{model}{spec}` and `\colorlet{name}{color}` declarations
+  (from the `xcolor` package). These declarations define named colors used in the body via
+  `\textcolor`, `\color`, `\colorbox`, etc. When they are absent from the minimal preamble,
+  every `\textcolor{darkgreen}{...}` in the body triggers `Undefined color 'darkgreen'`.
+  The fix is to add a `_DEFINECOLOR_RE` pattern matching `\definecolor` and `\colorlet`
+  declarations and append them after the package lines in the minimal preamble.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`,
+  `parts` list; no `_DEFINECOLOR_RE` exists
+- **relevant_latex_docs**: https://ctan.org/pkg/xcolor (xcolor.pdf §2.1 — `\definecolor`,
+  `\colorlet` define named colors; they must appear in the preamble before use)
+- **reproduction**: `tests/fixtures/bug_24_definecolor_stripped/main.tex`
+  ```latex
+  \documentclass{article}
+  \usepackage{xcolor}
+  \definecolor{darkgreen}{rgb}{0,0.5,0}
+  \colorlet{myblue}{blue!70!black}
+  \begin{document}
+  This is \textcolor{darkgreen}{dark green} text.
+  \end{document}
+  ```
+  After `build_minimal_preamble`, `\definecolor{darkgreen}{...}` is stripped →
+  `! Package xcolor Error: Undefined color 'darkgreen'.`
+- **first_seen**: 2026-03-24
+- **last_seen**: 2026-03-24
+- **status**: OPEN
+
+---
+
+## BUG-25: `\newtheorem` declarations from paper conflict with document class definitions
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: other
+- **failure_mode**: C
+- **seen_in**: [2601.08432] — uses `lipics-v2021` document class which pre-defines
+  `theorem`, `lemma`, etc.; pipeline output includes `\newtheorem{theorem}{Theorem}`
+  → `! LaTeX Error: Command \theorem already defined.`
+- **description**: `build_minimal_preamble` copies `\newtheorem` declarations from the
+  raw preamble into the minimal preamble. It deduplicates by env-name across the raw
+  source (BUG-17 fix), but it does not detect that the document class may already define
+  the same environment. Classes such as `lipics-v2021`, `beamer`, and `elsarticle` predefine
+  common environments (`theorem`, `lemma`, `corollary`, etc.). When the author re-declares
+  them in the source, TeX accepts it because the source likely uses `\let\<env>\undefined`
+  or `\theoremstyle{...}` guards. In the pipeline output, those guards are stripped with
+  the rest of the preamble macros, leaving a naked conflicting `\newtheorem`. The pragmatic
+  fix is to wrap every `\newtheorem` in the minimal preamble with a conditional:
+  use `\providetheorem` if available, or check `\@ifundefined{<env>}{\newtheorem{...}}{}`
+  for each declaration.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`,
+  `newtheorems` list; deduplication only checks against other raw-source occurrences
+- **relevant_latex_docs**: https://texdoc.org/pkg/amsthm; lipics-v2021.cls source
+  (defines `\newtheorem{theorem}{Theorem}` at load time)
+- **reproduction**: `tests/fixtures/bug_25_newtheorem_class_conflict/main.tex`
+  (simplified — simulates the conflict by declaring `\newtheorem{theorem}` twice, as
+  the class's implicit declaration plus the paper's explicit one would produce)
+- **first_seen**: 2026-03-24
+- **last_seen**: 2026-03-24
+- **status**: OPEN
