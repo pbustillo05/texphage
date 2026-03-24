@@ -828,4 +828,4 @@ status (OPEN / IN_PROGRESS / FIXED).
   the class's implicit declaration plus the paper's explicit one would produce)
 - **first_seen**: 2026-03-24
 - **last_seen**: 2026-03-24
-- **status**: OPEN
+- **status**: IN_PROGRESS
