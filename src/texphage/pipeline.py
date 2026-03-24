@@ -62,13 +62,16 @@ _FRONT_MATTER_RE = _re.compile(
 # Docs: https://texdoc.org/pkg/amsthm
 # MATCHES: \newtheorem{envname}{Print Name}[numbered-within]
 #          \newtheorem*{envname}{Print Name}
+#          \newtheoremrm{envname}{Print Name}  (tac.cls)
+#          \newtheoremit{envname}{Print Name}  (class-specific variants)
 # CAPTURES:
 #   nt_env → the environment name, e.g. "remark"
 # LIMITATIONS:
 #   [observed] Does not handle \theoremstyle{} — that is a separate command,
 #              not part of the \newtheorem declaration itself.
+#   [observed] BUG-20: \newtheoremrm (tac.cls) was missed before \w* was added.
 _NEWTHEOREM_RE = _re.compile(
-    r'\\newtheorem\*?'
+    r'\\newtheorem\w*\*?'
     r'\s*\{(?P<nt_env>[^}]*)\}' # {environment-name} — captured for deduplication
     r'\s*(?:\[[^\]]*\])?'       # optional [numbered-within] before print-name
     r'\s*\{[^}]*\}'             # {print-name}

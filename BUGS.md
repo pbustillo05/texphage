@@ -628,7 +628,8 @@ status (OPEN / IN_PROGRESS / FIXED).
   for any `\newXXX{name}{...}` that follows the `\newtheorem` argument structure.
 - **first_seen**: 2026-03-23
 - **last_seen**: 2026-03-23
-- **status**: IN_PROGRESS
+- **fixed**: 2026-03-23
+- **status**: FIXED
 
 ---
 
