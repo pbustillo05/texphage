@@ -108,14 +108,42 @@ _VERSION_ENV_RE = _re.compile(
 )
 
 
+# Color definition commands from the xcolor package.
+# These define named colors used in the body via \textcolor, \color, \colorbox, etc.
+# Without them, the pipeline output fails with "Undefined color 'name'".
+# Docs: https://ctan.org/pkg/xcolor (xcolor.pdf §2.1)
+# MATCHES: \definecolor{darkgreen}{rgb}{0,0.5,0}
+#          \definecolor[named]{MyGreen}{rgb}{0,0.5,0}
+#          \colorlet{myblue}{blue!70!black}
+#          \colorlet[named]{myblue}{blue}
+#          \DefineNamedColor{named}{MyRed}{rgb}{1,0,0}
+#          \providecolor{foo}{rgb}{1,0,0}
+#          \preparecolor{foo}{rgb}{1,0,0}
+# CAPTURES: full match only (no named groups needed)
+# LIMITATIONS:
+#   [observed] \definecolor, \colorlet, \DefineNamedColor tested via playground.
+#   [inferred] \providecolor, \preparecolor have same syntax as \definecolor
+#              (xcolor.pdf §2.1); not separately tested.
+#   [inferred] Color expressions with ! (e.g. blue!70!black) inside braces are
+#              captured correctly since the pattern uses [^}]*.
+_DEFINECOLOR_RE = _re.compile(
+    r'\\(?:definecolor|DefineNamedColor|colorlet|providecolor|preparecolor)'
+    r'\s*(?:\[[^\]]*\])?'        # optional [type] argument
+    r'(?:\s*\{[^}]*\}){2,4}',   # 2–4 brace-delimited arguments
+    _re.DOTALL,
+)
+
+
 def build_minimal_preamble(raw_tex: str) -> str:
     """Return a minimal LaTeX preamble extracted from raw_tex.
 
     Keeps the \\documentclass declaration, all \\usepackage / \\usetikzlibrary
     calls (with their options), front-matter commands (\\title, \\author,
     \\date, \\address, \\email, \\keywords, \\subjclass, \\dedicatory, \\thanks),
-    \\newtheorem declarations, and version/comment environment declarations
-    (\\excludeversion, \\includeversion, \\excludecomment, \\includecomment)
+    \\newtheorem declarations, version/comment environment declarations
+    (\\excludeversion, \\includeversion, \\excludecomment, \\includecomment),
+    and xcolor color definitions (\\definecolor, \\colorlet, \\DefineNamedColor,
+    \\providecolor, \\preparecolor)
     that appear in the original preamble.  All custom macro definitions are
     stripped.
 
@@ -155,7 +183,11 @@ def build_minimal_preamble(raw_tex: str) -> str:
     # \excludeversion{name} / \includeversion{name} define environments;
     # stripping them causes "Environment name undefined" in the body.
     version_envs = [m.group(0).strip() for m in _VERSION_ENV_RE.finditer(raw_preamble)]
-    parts = [docclass] + pkg_lines + newtheorems + version_envs + front_matter
+    # BUG-24: xcolor color definition commands must survive.
+    # \definecolor{name}{model}{spec}, \colorlet{name}{color-expr}, etc.
+    # define named colors; stripping them causes "Undefined color 'name'".
+    color_defs = [m.group(0).strip() for m in _DEFINECOLOR_RE.finditer(raw_preamble)]
+    parts = [docclass] + pkg_lines + newtheorems + version_envs + color_defs + front_matter
     return '\n'.join(parts)
 
 

@@ -5,6 +5,11 @@
 
 \documentclass{article}
 \usepackage{amsthm}
+\usepackage{xcolor}
+
+%% From BUG-24: \definecolor and \colorlet must survive build_minimal_preamble
+\definecolor{darkgreen}{rgb}{0,0.5,0}
+\colorlet{myblue}{blue}
 
 %% From BUG-23: \newtheorem print-name with nested braces (\ref{...})
 \newtheorem*{def31}{Definition \ref{def:afb}}
