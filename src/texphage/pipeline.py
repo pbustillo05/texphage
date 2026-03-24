@@ -70,8 +70,10 @@ _FRONT_MATTER_RE = _re.compile(
 #   [observed] Does not handle \theoremstyle{} — that is a separate command,
 #              not part of the \newtheorem declaration itself.
 #   [observed] BUG-20: \newtheoremrm (tac.cls) was missed before \w* was added.
+#   [observed] BUG-22: \newtheoremstyle (amsthm) has 9 args; must be excluded
+#              via negative lookahead to avoid partial capture.
 _NEWTHEOREM_RE = _re.compile(
-    r'\\newtheorem\w*\*?'
+    r'\\newtheorem(?!style)\w*\*?'
     r'\s*\{(?P<nt_env>[^}]*)\}' # {environment-name} — captured for deduplication
     r'\s*(?:\[[^\]]*\])?'       # optional [numbered-within] before print-name
     r'\s*\{[^}]*\}'             # {print-name}

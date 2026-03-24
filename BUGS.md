@@ -719,7 +719,8 @@ status (OPEN / IN_PROGRESS / FIXED).
   with `Missing number`.
 - **first_seen**: 2026-03-24
 - **last_seen**: 2026-03-24
-- **status**: IN_PROGRESS
+- **status**: FIXED
+- **fixed**: 2026-03-24
 
 ---
 
