@@ -11,6 +11,11 @@
 
 \newtheorem{theorem}{Theorem}
 
+%% From BUG-25: \newtheorem that would conflict with class-predefined environments
+%% The pipeline wraps these in \@ifundefined guards; the regex must still match them.
+\newtheorem{lemma}{Lemma}[section]
+\newtheorem*{remark}{Remark}
+
 \begin{document}
 
 \begin{theorem}

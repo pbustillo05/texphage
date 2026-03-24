@@ -136,13 +136,21 @@ def build_minimal_preamble(raw_tex: str) -> str:
     # BUG-17: multi-file projects may have duplicate \newtheorem declarations
     # after unfold merges the source. Deduplicate by environment name (first
     # occurrence wins) to avoid "Command \foo already defined" errors.
+    # BUG-25: document classes (lipics-v2021, beamer, elsarticle, etc.) may
+    # predefine common theorem environments (theorem, lemma, corollary, ...).
+    # Wrapping each \newtheorem in \@ifundefined{envname}{...}{} prevents
+    # "Command \foo already defined" when the class already provides it.
     _seen_nt: set[str] = set()
     newtheorems: list[str] = []
     for m in _NEWTHEOREM_RE.finditer(raw_preamble):
         env_name = m.group('nt_env')
         if env_name not in _seen_nt:
             _seen_nt.add(env_name)
-            newtheorems.append(m.group(0).strip())
+            decl = m.group(0).strip()
+            # Guard: only define if the environment does not already exist.
+            guarded = (r'\makeatletter\@ifundefined{' + env_name
+                       + r'}{' + decl + r'}{}\makeatother')
+            newtheorems.append(guarded)
     # BUG-18: version/comment package environment declarations must survive.
     # \excludeversion{name} / \includeversion{name} define environments;
     # stripping them causes "Environment name undefined" in the body.
