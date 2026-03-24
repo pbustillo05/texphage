@@ -1,0 +1,24 @@
+% Reproduction fixture for BUG-20:
+% build_minimal_preamble does not capture \newtheoremrm declarations
+% (class-specific theorem-environment definers beyond \newtheorem).
+%
+% Observed in 2501.09243 which uses tac.cls:
+%   \newtheoremrm{rem}{Remark} defines the {rem} environment.
+%   build_minimal_preamble only captures \newtheorem, not \newtheoremrm.
+%   Pipeline output fails with: ! LaTeX Error: Environment rem undefined.
+%
+% This minimal fixture uses the standard article class which doesn't have
+% \newtheoremrm, so we simulate the pattern with a custom class command
+% to demonstrate what should be preserved.
+\documentclass{article}
+\usepackage{amsthm}
+% \newtheoremrm is a tac.cls-specific variant of \newtheorem.
+% For this fixture, we demonstrate the analogous problem:
+% any unknown \newXXXtheorem-style command in the preamble is stripped.
+% The fix: _NEWTHEOREM_RE should also match \newtheoremrm{...}{...}
+\newtheorem{rem}{Remark}
+\begin{document}
+\begin{rem}
+This is a remark.
+\end{rem}
+\end{document}

@@ -1,0 +1,21 @@
+% Reproduction fixture for BUG-21:
+% find_pkg_lib regex [a-z0-9\+\-\.]+ does not match package names with
+% underscores. \usepackage{defs_pp1} is silently dropped from the
+% minimal preamble because "defs_pp1" contains an underscore character.
+%
+% Observed in 2502.01497 where defs_pp1.sty defines \cC, \BC, etc.
+% Without \usepackage{defs_pp1} in the pipeline preamble, all macros
+% defined in that local .sty file become undefined.
+%
+% To reproduce locally: create a my_defs.sty file alongside this main.tex
+% that defines \myMacro, then run through the pipeline.
+%
+% my_defs.sty content:
+%   \newcommand{\myMacro}{\mathcal{M}}
+\documentclass{article}
+\usepackage{amsmath}
+% The following line is dropped by find_pkg_lib (underscore in name):
+\usepackage{my_defs}
+\begin{document}
+$\myMacro$ is a macro defined in my\_defs.sty.
+\end{document}

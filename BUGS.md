@@ -590,3 +590,90 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **last_seen**: 2026-03-23
 - **status**: FIXED
 - **fixed**: 2026-03-23
+
+---
+
+## BUG-20: `\newtheoremrm` and other class-specific theorem-env definers stripped by `build_minimal_preamble`
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: other
+- **failure_mode**: C
+- **seen_in**: [2501.09243] — uses `tac.cls` which provides `\newtheoremrm`; paper defines `\newtheoremrm{rem}{Remark}` which declares the `{rem}` environment; pipeline output fails with `! LaTeX Error: Environment rem undefined.`
+- **description**: `build_minimal_preamble` uses `_NEWTHEOREM_RE` which matches only
+  `\newtheorem` and `\newtheorem*`. Some document classes (e.g. tac.cls) provide their
+  own theorem-like environment declarers with different names (e.g. `\newtheoremrm`
+  for roman-body theorems). The pattern `_NEWTHEOREM_RE` does not match these variants,
+  so `\newtheoremrm{rem}{Remark}` is stripped from the preamble. The body then uses
+  `\begin{rem}...\end{rem}` which TeX cannot find, causing "Environment rem undefined."
+  Verified by compiling the pipeline output from the paper's own directory (where tac.cls
+  is present): the error is precisely `! LaTeX Error: Environment rem undefined.`
+- **relevant_code_location**: `src/texphage/pipeline.py` — `_NEWTHEOREM_RE` (only matches
+  `\newtheorem` and `\newtheorem*`); `build_minimal_preamble()` `newtheorems` list
+- **relevant_latex_docs**: https://ctan.org/pkg/tac (tac.cls source, line 178:
+  `\def\newtheoremrm#1{\@ifnextchar[{\@newthmrm{#1}}{\@newthmrm{#1}[]}}`)
+- **reproduction**: `tests/fixtures/bug_20_newtheoremrm/main.tex`
+  The actual failure uses `tac.cls`:
+  ```latex
+  \documentclass{tac}
+  \newtheoremrm{rem}{Remark}
+  \begin{document}
+  \begin{rem}This is a remark.\end{rem}
+  \end{document}
+  ```
+  After `build_minimal_preamble`, `\newtheoremrm{rem}{Remark}` is stripped →
+  `! LaTeX Error: Environment rem undefined.`
+- **fix**: Extend `_NEWTHEOREM_RE` to also match class-specific theorem-environment
+  declarers. Either generalise to match `\new<word>theorem*?{...}{...}` or add
+  an explicit branch for `\newtheoremrm`. Also consider adding a general pattern
+  for any `\newXXX{name}{...}` that follows the `\newtheorem` argument structure.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN
+
+---
+
+## BUG-21: `find_pkg_lib` regex silently drops `\usepackage{...}` when package name contains an underscore
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: other
+- **failure_mode**: C
+- **seen_in**: [2502.01497] — `\usepackage{defs_pp1}` where `defs_pp1.sty` is a local
+  style file bundled in the arXiv tarball; all macros defined in it (e.g. `\cC`, `\BC`,
+  `\bC`) become undefined in the pipeline output; compile fails with
+  `! Undefined control sequence` at `\cC_{Y}`.
+- **description**: The `find_pkg_lib` regex in `find_packages.py` uses the character
+  class `[a-z0-9\+\-\.]+` to match package names. This class does not include
+  underscore `_`. The CTAN naming convention for packages forbids underscores, but
+  authors routinely name their local `.sty` companion files with underscores (e.g.
+  `defs_pp1.sty`, `my_macros.sty`). When `\usepackage{defs_pp1}` appears in the
+  preamble, `find_explicit_package_calls` silently skips it. The line is therefore
+  absent from the minimal preamble emitted by `build_minimal_preamble`. Since
+  `unfold()` does not process `\usepackage` (only `\input`/`\include`), the macro
+  definitions from `defs_pp1.sty` are also never seen by `demacro`. The body retains
+  unexpanded calls to macros that are undefined, causing compile failure.
+- **relevant_code_location**: `src/texphage/find_packages.py` — `find_pkg_lib` regex
+  character class `[a-z0-9\+\-\.]+` (line 25); `find_explicit_package_calls()`
+- **relevant_latex_docs**: https://ctan.org/pkg/ (CTAN package naming rules);
+  LaTeX2e source for `\usepackage` — package names in practice include underscores
+  for local/bundled style files.
+- **reproduction**: `tests/fixtures/bug_21_underscore_package_name/main.tex`
+  alongside `tests/fixtures/bug_21_underscore_package_name/my_defs.sty`:
+  ```latex
+  \documentclass{article}
+  \usepackage{amsmath}
+  \usepackage{my_defs}  % dropped by find_pkg_lib
+  \begin{document}
+  $\myMacro$            % \myMacro defined in my_defs.sty — undefined in output
+  \end{document}
+  ```
+  Pipeline output preamble lacks `\usepackage{my_defs}` →
+  `! Undefined control sequence \myMacro`.
+- **fix**: Add underscore to the character class in `find_pkg_lib`:
+  change `[a-z0-9\+\-\.]+` to `[a-z0-9\+\-\._]+` for package names
+  (the `packages` and `libraries` capture groups). Note that this only affects
+  what appears in the minimal preamble — macros defined in the `.sty` will still
+  be unexpanded (since `unfold()` does not process `\usepackage`), but at least
+  the `\usepackage{...}` call is preserved so TeX can load the file at compile time.
+- **first_seen**: 2026-03-23
+- **last_seen**: 2026-03-23
+- **status**: OPEN

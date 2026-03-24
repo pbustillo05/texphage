@@ -18,3 +18,4 @@ The testing-agent appends a row here after every run (Step 8.5).
 | 2026-03-23 |    5 | 2             | BUG-15 confirmed; BUG-12 symptom in 2601.14237 |
 | 2026-03-23 |    6 | 4             | BUG-15, BUG-18 confirmed; \prop undefined in 2601.13325 |
 | 2026-03-23 |    8 | 3             | BUG-17 confirmed (2602.04425); Missing $ in math mode (BUG-15 cascade) |
+| 2026-03-23 |    1 | 4             | BUG-20, BUG-21 (new); 2501.00624 PDF-only (skipped); 2501.00319 success (HIGH page delta — layout-only) |
