@@ -596,3 +596,50 @@ def test_newtheoremstyle_not_captured_BUG_22():
     assert 'TheoremNum' not in minimal, (
         f"\\newtheoremstyle was incorrectly matched as \\newtheorem:\n{minimal}"
     )
+
+
+def test_newtheorem_nested_braces_BUG_23():
+    r"""BUG-23: \newtheorem*{env}{Title with \ref{...}} must capture the full title.
+
+    Playground verified:
+        \usepackage{amsthm}
+        \newtheorem{theorem}{Theorem}
+        \newtheorem{definition}[theorem]{Definition}
+        \newtheorem*{def31}{Definition \ref{def:afb}}
+        + \begin{theorem}Hello.\end{theorem}
+          \begin{definition}\label{def:afb}A def.\end{definition}
+          \begin{def31}Restatement.\end{def31}
+        -> "Theorem 1. Hello.\nDefinition 2. A def.\nDefinition 2. Restatement."
+    compile_snippet(...).pdf_text contains 'Definition 2. Restatement.'
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheorem{theorem}{Theorem}\n"
+        "\\newtheorem{definition}[theorem]{Definition}\n"
+        "\\newtheorem*{def31}{Definition \\ref{def:afb}}\n"
+        "\\newtheorem*{def41}{Definition \\ref{def:chaincomplex}}\n"
+        "\\begin{document}\n"
+        "\\begin{theorem}Hello.\\end{theorem}\n"
+        "\\begin{definition}\\label{def:afb}A def.\\end{definition}\n"
+        "\\begin{def31}Restatement.\\end{def31}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: all \newtheorem declarations must be present with balanced braces
+    assert r'\newtheorem*{def31}{Definition \ref{def:afb}}' in minimal, (
+        f"BUG-23: \\newtheorem* with nested \\ref braces has incomplete capture:\n{minimal}"
+    )
+    assert r'\newtheorem*{def41}{Definition \ref{def:chaincomplex}}' in minimal, (
+        f"BUG-23: \\newtheorem* with nested \\ref braces has incomplete capture:\n{minimal}"
+    )
+
+    # Negative: there must not be unbalanced braces in \newtheorem lines
+    for line in minimal.split('\n'):
+        if 'def31' in line or 'def41' in line:
+            assert line.count('{') == line.count('}'), (
+                f"BUG-23: unbalanced braces in newtheorem line: {line!r}"
+            )
