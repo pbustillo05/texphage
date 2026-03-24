@@ -20,10 +20,28 @@ from texphage._regex import (
 
 logger = logging.getLogger(__name__)
 
-find_file = re.compile(r'[a-z0-9\+\-\.]+')
+# MATCHES: individual package/library name tokens inside a comma-separated list
+# CAPTURES: the full match is one package name, e.g. "amsmath" or "defs_pp1"
+# LIMITATIONS:
+#   [observed] CTAN packages do not use underscores, but arXiv bundled .sty
+#              files routinely do (e.g. defs_pp1.sty). Underscore is required.
+find_file = re.compile(r'[a-z0-9\+\-\._]+')
+
+# MATCHES: \usepackage[opts]{pkg1,pkg2}, \RequirePackage[opts]{pkg},
+#          \usetikzlibrary{lib1,lib2}, \usepgflibrary{lib}
+# CAPTURES:
+#   (group 1)  → "usepackage" or "RequirePackage"
+#   options    → optional [...] argument (via embed_braces)
+#   packages   → comma-separated package names
+#   type       → "tikz" or "pgf" (for library calls)
+#   libraries  → comma-separated library names
+# LIMITATIONS:
+#   [observed] Underscore in package names is needed for bundled .sty files
+#              (BUG-21: defs_pp1.sty, my_defs.sty).
+#   [inferred] Does not match \usepackage with @ in name (rare).
 find_pkg_lib = re.compile(
-    r'^[^%%\n]*(?:\\(usepackage|RequirePackage)\s*%s\s*\{(?<packages>(?:[a-z0-9\+\-\.]+| |,)+)\}'
-    r'|\\use(?<type>tikz|pgf)library\s*\{(?<libraries>(?:[a-z0-9\+\-\.]+| |,)+)\})' % embed_braces('options'),
+    r'^[^%%\n]*(?:\\(usepackage|RequirePackage)\s*%s\s*\{(?<packages>(?:[a-z0-9\+\-\._]+| |,)+)\}'
+    r'|\\use(?<type>tikz|pgf)library\s*\{(?<libraries>(?:[a-z0-9\+\-\._]+| |,)+)\})' % embed_braces('options'),
     flags=re.MULTILINE,
 )
 
