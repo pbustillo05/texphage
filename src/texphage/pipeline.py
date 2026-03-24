@@ -72,6 +72,8 @@ _FRONT_MATTER_RE = _re.compile(
 #   [observed] BUG-20: \newtheoremrm (tac.cls) was missed before \w* was added.
 #   [observed] BUG-22: \newtheoremstyle (amsthm) has 9 args; must be excluded
 #              via negative lookahead to avoid partial capture.
+#   [observed] BUG-23: print-name may contain nested braces (e.g. \ref{...});
+#              must use balanced-brace group, not [^}]*.
 _NEWTHEOREM_RE = _re.compile(
     r'\\newtheorem(?!style)\w*\*?'
     r'\s*\{(?P<nt_env>[^}]*)\}' # {environment-name} — captured for deduplication
