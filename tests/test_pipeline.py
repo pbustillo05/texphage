@@ -643,3 +643,68 @@ def test_newtheorem_nested_braces_BUG_23():
             assert line.count('{') == line.count('}'), (
                 f"BUG-23: unbalanced braces in newtheorem line: {line!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# BUG-25 regression: \newtheorem guarded against class pre-definitions
+# ---------------------------------------------------------------------------
+
+
+def test_newtheorem_guarded_against_class_predefs_BUG_25():
+    r"""BUG-25: \newtheorem declarations must be wrapped in \@ifundefined guards.
+
+    Playground verified:
+        \usepackage{amsthm} + \newtheorem{theorem}{Theorem}
+        + \makeatletter\@ifundefined{theorem}{\newtheorem{theorem}{Theorem}}{}\makeatother
+        + \begin{theorem}Hello world.\end{theorem}
+        -> "Theorem 1. Hello world."
+    compile_snippet(preamble=..., body=...).pdf_text contains 'Theorem 1. Hello world.'
+
+    Document classes like lipics-v2021, beamer, elsarticle predefine common
+    environments (theorem, lemma, etc.). When build_minimal_preamble copies
+    a naked \newtheorem{theorem}{Theorem}, it conflicts with the class's
+    pre-existing definition, producing:
+        ! LaTeX Error: Command \theorem already defined.
+    The fix wraps each \newtheorem in \@ifundefined{envname}{...}{}.
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheorem{theorem}{Theorem}\n"
+        "\\newtheorem{lemma}{Lemma}[section]\n"
+        "\\newtheorem*{remark}{Remark}\n"
+        "\\begin{document}\n"
+        "\\begin{theorem}Hello.\\end{theorem}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: each \newtheorem must be wrapped in \@ifundefined guard
+    assert r'\@ifundefined{theorem}' in minimal, (
+        f"BUG-25: \\newtheorem{{theorem}} not guarded:\n{minimal}"
+    )
+    assert r'\@ifundefined{lemma}' in minimal, (
+        f"BUG-25: \\newtheorem{{lemma}} not guarded:\n{minimal}"
+    )
+    assert r'\@ifundefined{remark}' in minimal, (
+        f"BUG-25: \\newtheorem{{remark}} not guarded:\n{minimal}"
+    )
+
+    # Positive: the original \newtheorem declaration is still inside the guard
+    assert r'\newtheorem{theorem}{Theorem}' in minimal
+    assert r'\newtheorem{lemma}{Lemma}[section]' in minimal
+    assert r'\newtheorem*{remark}{Remark}' in minimal
+
+    # Positive: \makeatletter and \makeatother must bracket the guards
+    assert r'\makeatletter' in minimal
+    assert r'\makeatother' in minimal
+
+    # Negative: there must be no naked (unguarded) \newtheorem at top level
+    # Each \newtheorem must appear inside \@ifundefined{...}{<here>}{}
+    for line in minimal.split('\n'):
+        if r'\newtheorem' in line:
+            assert r'\@ifundefined' in line, (
+                f"BUG-25: unguarded \\newtheorem found: {line!r}"
+            )
