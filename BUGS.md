@@ -757,7 +757,7 @@ status (OPEN / IN_PROGRESS / FIXED).
   (missing closing brace) → pipeline output preamble has unclosed brace → compile error.
 - **first_seen**: 2026-03-24
 - **last_seen**: 2026-03-24
-- **status**: OPEN
+- **status**: IN_PROGRESS
 
 ---
 
