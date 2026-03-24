@@ -8,7 +8,11 @@ This feature must be available in two ways:
 1.  As an optional final step in the `texphage()` pipeline.
 2.  As a standalone command-line tool `texphage-format`.
 
-**Guiding Principle:** The formatting must *never* alter the compiled PDF output. This means we will only add newlines where LaTeX treats them as whitespace, primarily by replacing existing single spaces. We will not re-wrap text within paragraphs. All instances of `\par` must be replaced by newlines (unless impossible).
+**Guiding Principle:** 
+- The formatting must *never* alter the compiled PDF output. This means we will only add newlines where LaTeX treats them as whitespace, primarily by replacing existing single spaces.
+- All instances of `\par` must be replaced by newlines (unless impossible).
+- Every English sentence should have its own line.
+- In mathematical environments, code should be indented and newlines should be created (with the appropriate `%`) for optimal readability.
 
 ## 2. Your Task: Build the Formatter and Standalone Tool
 
