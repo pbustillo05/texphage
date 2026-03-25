@@ -1,18 +1,29 @@
 # texphage
 
-Unfold multi-file LaTeX projects into a single 5-lines document of the form:
-```LaTeX
-\documentclass[...]{...}
-% <minimal preamble containing mostly a list of \usepackage[...]{...} commands>
-\begin{document}
-% <1-line demacro'ed body>
-\end{document}
-```
-without changing the PDF output at all.
+A **LaTeX rearrangement toolbox**: tools that restructure LaTeX source with
+no (or minimal, documented) impact on the compiled PDF.
 
-**Primary use case:** preparing arXiv source tarballs for downstream NLP
-pipelines (embedding, search, extraction) where custom macros must be resolved
-so that a snippet can be compiled and understood with a minimal preamble.
+Current tools:
+
+- **unfold** — resolve `\input`/`\include` chains into a single flat `.tex`
+- **demacro** — expand all preamble-defined macros and produce a minimal
+  preamble, yielding a self-contained 5-line canonical document:
+  ```LaTeX
+  \documentclass[...]{...}
+  % <minimal preamble: mostly \usepackage commands>
+  \begin{document}
+  % <1-line demacro'd body>
+  \end{document}
+  ```
+- **format** *(planned)* — reformat canonical output into human-readable LaTeX
+  with one sentence per line and consistent indentation
+- **xy→tikzcd** *(in progress)* — translate legacy `\xymatrix` diagrams to
+  modern tikzcd
+
+All tools share the same regex engine, preprocessing pipeline, and fidelity
+testing infrastructure. See `docs/user_applications.md` for the full catalogue of
+current and planned applications (NLP pipelines, human editing tools, training
+data generation, VSCode extension, …).
 
 ---
 
@@ -98,6 +109,7 @@ contains end-to-end regression tests that require `latexmk`.
 
 ---
 
+For the catalogue of applications and use cases, see `docs/user_applications.md`.
 For AI workflow protocols, see `CLAUDE.md`, `.claude/`, `GEMINI.md` and `.gemini/`.
 For bugs and future directions, see `BUGS.md` and `TODO.md`.
 

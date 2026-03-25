@@ -2,11 +2,24 @@
 
 ## Project goal
 
-texphage takes an arXiv LaTeX tarball and produces a canonical 5-line document
-(documentclass + minimal usepackage + 1-line demacro'd body) without changing
-the PDF output. Primary use: feeding NLP pipelines (embedding, search,
-extraction) where custom macros must be resolved so that a snippet can be
-compiled and understood with a minimal preamble.
+texphage is a **LaTeX rearrangement toolbox**: a collection of tools that
+restructure LaTeX source with no (or minimal, documented) impact on the
+compiled PDF. All tools share the same regex engine (`_regex.py`), the same
+preprocessing contract (see §The preprocessing contract), and the same fidelity
+testing infrastructure.
+
+Current tools: **unfold** (resolve `\input`/`\include` chains), **demacro**
+(expand preamble macros → canonical 5-line document). Planned tools: a
+**pretty-printer** (`texphage-format`), an **xy→tikzcd converter**, and more
+(see `docs/user_applications.md` for the full catalogue).
+
+### Core tool: demacro
+
+The demacro tool takes an arXiv LaTeX tarball and produces a canonical 5-line
+document (documentclass + minimal usepackage + 1-line demacro'd body) without
+changing the PDF output. Primary uses: feeding NLP pipelines (embedding,
+search, extraction), and as the basis for any downstream tool that needs
+macros resolved first.
 
 ## The 5-line output format
 
@@ -104,5 +117,10 @@ docs: update known limitations
 
 ## Tracking files
 
-- **`BUGS.md`** — regressions only: cases where the pipeline's output is provably incorrect vs. what TeX produces. Never use for features or enhancements.
-- **`TODO.md`** — planned features, enhancements, and very low-priority edge cases that are not regressions. Never mix with BUGS.md.
+- **`BUGS.md`** — open regressions only (OPEN/IN_PROGRESS). Fixed bugs live in `docs/FIXED_BUGS.md`.
+- **`docs/FIXED_BUGS.md`** — read-only archive of resolved bugs. Do not reopen entries here.
+- **`TODO.md`** — planned features, enhancements, and low-priority edge cases. Never mix with BUGS.md.
+- **`docs/EVOLUTION.md`** — project direction log: completed phases, key architectural decisions, and intentional non-decisions. Read before starting any major new effort (use `/orient` skill).
+- **`docs/macros.md`** — implementation reference for macro definition coverage (updated by macro_coverage_agent).
+- **`docs/inclusions.md`** — implementation reference for file inclusion coverage (updated by inclusion_coverage_agent).
+- **`docs/user_applications.md`** — catalogue of all current and planned toolbox applications with status.

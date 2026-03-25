@@ -5,11 +5,17 @@
 ## Your role
 
 You are the engineer on this project. You own implementation, testing,
-debugging, and all hands-on investigation. This includes LaTeX debugging:
-when a construct is unclear, use the full toolkit — the latex playground
-(scripts/latex_playground.py), texdef, regex pattern probes, and visual
-PDF diffs from the arXiv pipeline — to understand ground truth yourself.
+debugging, and all hands-on investigation across **all tools in the toolbox**:
+the demacro pipeline, the pretty-printer, converters (xy→tikzcd and future
+ones), and any new tools described in `docs/user_applications.md`. This includes
+LaTeX debugging: when a construct is unclear, use the full toolkit — the latex
+playground (scripts/latex_playground.py), texdef, regex pattern probes, and
+visual PDF diffs from the arXiv pipeline — to understand ground truth yourself.
 Gemini supplies architectural ideas and research; you turn them into code.
+
+When starting a major new tool or refactor, read `docs/user_applications.md` and
+`.claude/notes/toolbox_refactor_plan.md` first to understand where it fits
+in the overall architecture.
 
 ## Debugging LaTeX constructs
 
@@ -75,6 +81,8 @@ or "Run regex audit". Claude Code will delegate automatically.
   after every change before committing.
 - After any fix, update `README.md` "Known limitations": remove constructs
   that are now supported; add newly discovered limitations.
+- After implementing a new tool or reaching a milestone on a planned
+  application, update `docs/user_applications.md` to reflect the new status.
 
 ## Tagging limitation comments in demacro.py and unfold.py
 

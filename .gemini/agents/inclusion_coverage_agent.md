@@ -59,7 +59,7 @@ Read in full:
 - `src/texphage/unfold.py` — the `_FIND_INPUT` regex with its MATCHES/CAPTURES/
   LIMITATIONS comment, the `replacement()` closure's `elif` chain, and the
   `find_main_file()` logic.
-- Current `inclusions.md` (if it exists) — do not discard structure that is
+- Current `docs/inclusions.md` (if it exists) — do not discard structure that is
   already correct.
 
 Build a precise inventory:
@@ -236,7 +236,7 @@ mainly in .sty/.cls files, not author documents]
 
 ## Outputs
 
-1. `inclusions.md` (project root) — created or replaced.
+1. `docs/inclusions.md` — created or replaced.
 2. Optionally: new `[inferred]` bullets added to the LIMITATIONS block in `unfold.py`.
 3. Optionally: one or more `TODO.md` entries for HIGH-priority uncovered directives
    that are clearly scoped enough to act on immediately, each with a concrete

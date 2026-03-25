@@ -1,12 +1,27 @@
-# Implement `texphage-format`: a LaTeX pretty-printer for canonical output
+# Implement `texphage-format`: a LaTeX pretty-printer
 
-## Context
+## Context (updated 2026-03-25)
 
-The texphage pipeline produces a "canonical 5-line" `.tex` file: a minimal
-preamble followed by a fully macro-expanded body, all on a single line (except
-`\par`-delimited paragraph breaks added by the BUG-12 fix). This is ideal for
-machine consumption but unreadable for humans. We want a formatter that makes
-the output inspectable without altering the compiled PDF.
+`texphage-format` is the **human-facing counterpart to the demacro pipeline**.
+It is one of the core tools in the texphage toolbox (see `docs/user_applications.md`
+§6 and `toolbox_refactor_plan.md`).
+
+The demacro pipeline produces a "canonical 5-line" `.tex` file: a minimal
+preamble followed by a fully macro-expanded body, all on a single line. This is
+ideal for machine consumption (NLP, batch compilation), but unreadable for
+humans. The formatter makes the output inspectable and editable without
+altering the compiled PDF.
+
+**Two independent uses:**
+1. **Post-pipeline:** format the output of `texphage()` for human review or
+   editing. The input has already been demacro'd — no custom macros remain.
+2. **Standalone:** format any `.tex` file that a human wants to clean up,
+   even without running the full pipeline first. In this case, the formatter
+   operates on the raw source and must be safe with macros still present.
+
+The formatter is used by humans. It must be independently installable and
+runnable as `texphage-format input.tex -o output.tex` without the rest of
+the pipeline (see `toolbox_refactor_plan.md` §4 for the CLI design).
 
 ### What the input looks like (post-pipeline)
 
@@ -24,17 +39,32 @@ The preamble is **already** one command per line (produced by
 
 ### Safety envelope
 
-The formatter operates on **post-demacro** LaTeX: all user-defined macros are
-already expanded. This means:
-- No macro can "eat" the whitespace we add.
+In the **post-demacro mode** (formatting `texphage()` output):
+- All user-defined macros are already expanded. No macro can "eat" the
+  whitespace we add.
 - The only unsafe whitespace is inside math mode (a newline without a trailing
   `%` introduces a spurious token-space in some positions).
 - Verbatim environments have already been processed and are not present in the
   output (they were protected and then restored by `demacro.preprocessing()`).
 
-**Invariant:** The formatter must never change the compiled PDF. Only add
-whitespace (newlines, blank lines) in positions where LaTeX treats them as
-equivalent to a space or nothing.
+In the **standalone mode** (formatting arbitrary `.tex`):
+- Macros are still present. The formatter must treat macro arguments as opaque
+  — never add whitespace inside `{...}` or `[...]` argument groups.
+- Verbatim environments must be detected and protected before any line-break
+  insertion, using the same protect/restore pattern as `demacro.preprocessing()`.
+- The same invariant applies: only add whitespace where LaTeX treats it as
+  equivalent to a space or nothing.
+
+**Core invariant (both modes):** The formatter must never change the compiled
+PDF. Any transformation that risks changing output must be gated by a flag
+(default off) and documented in the `LIMITATIONS` block.
+
+---
+
+**Architecture note:** The formatter lives at `src/texphage/formatter.py`. It
+is exposed as a standalone CLI tool (`texphage-format`) and optionally called
+from `texphage()` via a `pretty_print=False` flag. The CLI design and module
+layout are specified in `.claude/notes/toolbox_refactor_plan.md`.
 
 ---
 

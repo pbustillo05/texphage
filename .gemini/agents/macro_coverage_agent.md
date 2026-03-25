@@ -44,7 +44,7 @@ Read in full:
 - `src/texphage/demacro.py` — every regex with its MATCHES/CAPTURES/LIMITATIONS block,
   the `find_all` union pattern, and the full `build_dictionary` elif chain.
 - `src/texphage/_regex.py` — the shared primitives.
-- Current `macros.md` — do not discard structure that is already correct.
+- Current `docs/macros.md` — do not discard structure that is already correct.
 
 Build a precise inventory of what is actually handled:
 
@@ -194,7 +194,7 @@ Do not write regex syntax, Python, or implementation instructions.
 
 ## Outputs
 
-1. `macros.md` (project root) — replaced with the new version.
+1. `docs/macros.md` — replaced with the new version.
 2. Optionally: new `[inferred]` bullets added to LIMITATIONS blocks in `demacro.py`.
 3. Optionally: one or more `TODO.md` entries for HIGH-priority uncovered commands
    that are clearly scoped enough to act on immediately, each with a concrete

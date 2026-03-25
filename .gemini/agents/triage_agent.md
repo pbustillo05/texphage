@@ -25,8 +25,8 @@ the two-step vetting process (in GEMINI.md) decides what gets promoted.
 Read in full:
 - `BUGS.md` — all OPEN and PARTIAL bugs, ordered by severity
 - `TODO.md` — all Proposed and Accepted items
-- `macros.md` — the NOT COVERED section, if it exists
-- `inclusions.md` — the NOT COVERED section, if it exists
+- `docs/macros.md` — the NOT COVERED section, if it exists
+- `docs/inclusions.md` — the NOT COVERED section, if it exists
 
 Note for each open item:
 - Severity / priority

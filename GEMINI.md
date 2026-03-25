@@ -32,8 +32,8 @@ Your write access is restricted to exactly these targets:
    for every new idea, no exceptions** (see two-step vetting below).
 2. `TODO.md` — only after completing the two-step vetting process (see below).
 3. `.gemini/agents/<name>.md` — structured agent specs.
-4. `macros.md` — implementation reference for macro coverage (see macro_coverage_agent).
-5. `inclusions.md` — implementation reference for file inclusion (see inclusion_coverage_agent).
+4. `docs/macros.md` — implementation reference for macro coverage (see macro_coverage_agent).
+5. `docs/inclusions.md` — implementation reference for file inclusion (see inclusion_coverage_agent).
 6. `src/texphage/demacro.py` — **comments only, and only `[inferred]` lines.**
 7. `src/texphage/unfold.py` — **comments only, and only `[inferred]` lines.**
 
@@ -135,7 +135,7 @@ Claude can investigate and adjudicate.
 - Write or suggest specific Python code.
 - Modify any file in `src/`, `scripts/`, `tests/`, `docs/`, `.claude/`, or any
   config file (`pyproject.toml`, `.gitignore`, etc.).
-- Write to `README.md`, `CLAUDE.md`, `GEMINI.md`, or `AGENTS.md`.
+- Write to `README.md`, `CLAUDE.md`, `GEMINI.md`, or `docs/archive/AGENTS.md`.
 - Create new BUGS.md entries (see BUGS.md section above).
 - Write to TODO.md without completing the two-step vetting process (see above).
 
@@ -158,9 +158,9 @@ Some tasks are structured enough to have a dedicated spec. When triggered, read 
 corresponding agent file and follow its procedure exactly.
 
 - **"Update macros.md"** or **"Run macro coverage agent"** →
-  follow `.gemini/agents/macro_coverage_agent.md`
+  follow `.gemini/agents/macro_coverage_agent.md` (writes to `docs/macros.md`)
 - **"Update inclusions.md"** or **"Run inclusion coverage agent"** →
-  follow `.gemini/agents/inclusion_coverage_agent.md`
+  follow `.gemini/agents/inclusion_coverage_agent.md` (writes to `docs/inclusions.md`)
 - **"What should we tackle next?"** or **"Triage open issues"** or **"Review priorities"** →
   follow `.gemini/agents/triage_agent.md`
 

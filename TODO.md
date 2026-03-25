@@ -299,8 +299,8 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     **Sub-problem 4 — Topological sort via `order_usepackages.json`.**
 
     Pruning to root packages is necessary but not sufficient: the *relative order*
-    of the surviving packages can also matter.  `order_usepackages.json` (at the
-    project root) encodes known constraints: its keys are packages that must appear
+    of the surviving packages can also matter.  `src/texphage/data/order_usepackages.json`
+    encodes known constraints: its keys are packages that must appear
     *after* everything in their value list.  Example: `cleveref` must come after
     `hyperref`, `varioref`, `amsthm`, etc.
 
@@ -350,71 +350,10 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 
 ## Done
 
-*   **[REFACTOR] Centralize and reorganize all regex patterns in `_regex.py`** — implementing naming conventions, section organization, and pattern reuse as a foundational change.
+See `docs/EVOLUTION.md` for the full history of completed phases and key decisions.
 
-    **Completed.** All regex now lives in `_regex.py`, organized into 8 sections. Naming conventions applied throughout (`_RE`, `_PATTERN`, `snake_case`).
-
-*   **[REFACTOR] Replace all non-regex string pattern-finding with regex**
-
-    **Completed.** Replaced char loops in `_strip_par_in_groups`, `_def_param_pattern`; char-index access in `_strip_delimiters`; `str.find()` in `build_minimal_preamble`; `str.endswith()` / `str.split(',')` in `find_attachments`.
-
-    **Motivation:** The codebase rule is that all pattern-finding and pattern-replacement
-    in strings must go through the `regex` module for homogeneity, auditability, and
-    consistency with the MATCHES/CAPTURES/LIMITATIONS comment convention.
-
-    The following production functions currently use ad-hoc string operations for
-    structural pattern detection and must be migrated to regex:
-
-    | Function | File | Current technique |
-    |---|---|---|
-    | `_strip_par_in_groups` | `src/texphage/demacro.py` | Character-by-character loop + slicing to detect `\par`, `\begin`, `\end`, brace depth |
-    | `_def_param_pattern` | `src/texphage/demacro.py` | Character loop over `#N` placeholders and delimiter spans |
-    | `_strip_delimiters` | `src/texphage/demacro.py` | Index access + char comparison to detect outer `{}`/`[]` |
-    | `build_minimal_preamble` | `src/texphage/pipeline.py` | `str.find()` to locate `\begin{document}` |
-    | `find_attachments` | `src/texphage/pipeline.py` | `str.endswith()` / `str.split(',')` for file-extension and bibliography parsing |
-
-    **Plan:**
-    1.  For each function, write a regex equivalent (with `MATCHES/CAPTURES/LIMITATIONS`
-        comment) that produces identical results on the existing test suite.
-    2.  Replace the ad-hoc implementation, run `pytest tests/ -v`, confirm green.
-    3.  The hardest case is `_strip_par_in_groups`: it tracks brace depth and math
-        environments, which requires a stateful approach — consider using a regex-driven
-        tokenizer loop rather than a single compiled pattern.
-
-    **Acceptance criterion:** `grep -rn 'str\.find\|\.startswith\|\.endswith\|\.isalpha\|\.isdigit\|\.index(' src/texphage/` returns zero hits used for structural pattern detection (utility uses such as path manipulation are exempt).
-
-    **Priority:** LOW — correctness is unaffected; this is a code-quality / convention
-    alignment task.
-
-*   **[REFACTOR] Consolidate regex helper functions**
-
-    **Completed.** Moved `new_csname`, `com_name`, `env_name`, `find_specific_com`, `find_specific_env` from `demacro.py` to `_regex.py`. All macro-definition pattern strings also moved.
-
-    **Motivation:** The file `src/texphage/demacro.py` contains several small, regex-related helper functions (`new_csname`, `com_name`, `env_name`, etc.) that are conceptually part of the regex toolkit, which lives in `src/texphage/_regex.py`.
-
-    **Plan:**
-    1.  Move the following functions from `src/texphage/demacro.py` to `src/texphage/_regex.py`:
-        - `new_csname` (lambda)
-        - `com_name`
-        - `env_name`
-        - `find_specific_com`
-        - `find_specific_env`
-    2.  Update `src/texphage/demacro.py` to import these functions from `_regex.py`.
-
-*   **[REFACTOR] `find_command` pattern reuse**
-
-    **Completed.** Refactored `find_command` in `find_packages.py` to use `_CMD_DEF_KEYWORDS_PATTERN` and `_ENV_DEF_KEYWORDS_PATTERN` from `_regex.py`.
-
-    **Motivation:** The `find_command` function in `src/texphage/find_packages.py` defines its own complex regex patterns for matching macro definitions, which are very similar to the `find_all` pattern in `src/texphage/demacro.py`. This is a form of code duplication.
-
-    **Plan:**
-    1.  Expose the component patterns of `find_all` in `demacro.py` (e.g., `find_def`, `find_new_com`) in a way that they can be imported.
-    2.  Refactor the `pattern_env` and `pattern_cmd` regexes in `find_packages.py:find_command` to be built by combining the imported patterns from `demacro.py` with a specific `csname`. This is lower priority as it is more involved.
-
-*   **[ENHANCEMENT] `build_minimal_preamble` Phase 1 — unify parsing with `find_packages.py`**
-
-    Added `PackageCall` dataclass and `find_explicit_package_calls(preamble)` to
-    `find_packages.py`.  `build_minimal_preamble` now uses these instead of its own
-    duplicated `_USEPACKAGE_RE` regex.  Result is functionally identical to before
-    (same `\usepackage` calls, same options, same order) but parsing is unified and
-    structured data (`names`, `options`) is available for Phase 2 pruning.
+*   [REFACTOR] Centralize all regex in `_regex.py` + naming conventions — **Phase 3** in EVOLUTION.md
+*   [REFACTOR] Replace all non-regex string pattern-finding with regex — **Phase 3**
+*   [REFACTOR] Consolidate regex helper functions (`new_csname`, `com_name`, etc.) — **Phase 3**
+*   [REFACTOR] `find_command` pattern reuse via `_CMD_DEF_KEYWORDS_PATTERN` — **Phase 3**
+*   [ENHANCEMENT] `build_minimal_preamble` Phase 1 — unified parsing via `PackageCall` — **Phase 3**
