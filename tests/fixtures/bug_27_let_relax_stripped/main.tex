@@ -1,0 +1,13 @@
+\documentclass{llncs}
+% llncs.cls defines \proof environment.
+% The \let resets are required before \usepackage{amsthm},
+% which also tries to define \proof:
+\let\proof\relax
+\let\endproof\relax
+\usepackage{amsthm}
+
+\begin{document}
+\begin{proof}
+  A simple proof.
+\end{proof}
+\end{document}

@@ -1,0 +1,23 @@
+\documentclass{article}
+\usepackage{amsthm}
+
+% \theoremstyle declarations are stripped by build_minimal_preamble.
+% Environments defined after \theoremstyle{definition} should have
+% upright (non-italic) body text. Without the \theoremstyle, they
+% inherit the previous 'plain' style and render body text in italics.
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+
+\begin{document}
+\begin{theorem}
+  This is a theorem — body should be italic (plain style).
+\end{theorem}
+\begin{definition}
+  This is a definition — body should NOT be italic (definition style).
+\end{definition}
+\begin{remark}
+  This is a remark — body should NOT be italic (definition style).
+\end{remark}
+\end{document}
