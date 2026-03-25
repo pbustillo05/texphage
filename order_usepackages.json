@@ -1,0 +1,72 @@
+{
+  "cleveref": [
+    "hyperref",
+    "varioref",
+    "amsthm",
+    "ntheorem",
+    "aliascnt"
+  ],
+  "hyperref": [
+    "float",
+    "amsthm",
+    "caption",
+    "enumitem",
+    "titlesec",
+    "varioref",
+    "geometry",
+    "chappg"
+  ],
+  "thmtools": [
+    "amsthm",
+    "hyperref"
+  ],
+  "algorithm": [
+    "float",
+    "hyperref"
+  ],
+  "algorithm2e": [
+    "float",
+    "hyperref"
+  ],
+  "bookmark": [
+    "hyperref"
+  ],
+  "biblatex": [
+    "csquotes",
+    "babel"
+  ],
+  "glossaries": [
+    "hyperref"
+  ],
+  "subcaption": [
+    "caption"
+  ],
+  "unicode-math": [
+    "amsmath",
+    "mathtools",
+    "amsthm"
+  ],
+  "amsrefs": [
+    "hyperref"
+  ],
+  "hypcap": [
+    "hyperref"
+  ],
+  "minitoc": [
+    "hyperref"
+  ],
+  "ellipsis": [
+    "hyperref"
+  ],
+  "cmap": [
+    "fontenc",
+    "inputenc"
+  ],
+  "bidi": [
+    "hyperref",
+    "cleveref",
+    "amsmath",
+    "amsthm",
+    "graphicx"
+  ]
+}
