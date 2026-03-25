@@ -75,11 +75,12 @@ starred variants, and what happens when optional args are absent.
 Run the **pattern probe** (Template B in `failure-taxonomy` skill) to determine
 whether demacro even sees the definition:
 ```python
-from texphage.demacro import find_all, build_dictionary, preprocessing
+from texphage._regex import _FIND_ALL_RE
+from texphage.demacro import build_dictionary, preprocessing
 preamble, body, _ = preprocessing(raw_tex)
 
-# Mode A check: does find_all match this definition?
-for m in find_all.finditer(preamble):
+# Mode A check: does _FIND_ALL_RE match this definition?
+for m in _FIND_ALL_RE.finditer(preamble):
     print(m.lastgroup, m.group(0)[:80])
 # If \foo's definition does NOT appear → Mode A.
 

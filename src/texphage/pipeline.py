@@ -16,13 +16,23 @@ Attachment
 """
 from __future__ import annotations
 
-import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-import regex as _re
-
+from texphage._regex import (
+    _ADDBIBRESOURCE_RE,
+    _BEGIN_DOCUMENT_RE,
+    _BIB_EXT_RE,
+    _BIB_FILE_NAME_RE,
+    _BIBLIOGRAPHY_RE,
+    _DEFINECOLOR_RE,
+    _DOCCLASS_RE,
+    _FRONT_MATTER_RE,
+    _INCLUDEGRAPHICS_RE,
+    _NEWTHEOREM_RE,
+    _VERSION_ENV_RE,
+)
 from texphage.demacro import demacro
 from texphage.find_packages import find_explicit_package_calls
 from texphage.unfold import unfold
@@ -38,100 +48,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Preamble reconstruction
 # ---------------------------------------------------------------------------
-
-_DOCCLASS_RE = _re.compile(r'\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}')
-
-# Front-matter commands that must survive preamble stripping.
-# amsart/amsbook put \title, \author, \address, \email, \keywords, \subjclass,
-# \dedicatory in the preamble (before \begin{document}); without them
-# \maketitle raises "No \title given."  Standard article class may also use
-# \title, \author, \date in the preamble (optional in that class).
-# Pattern uses regex balanced-brace group for the mandatory argument so that
-# nested braces inside \title{A {B} C} are captured correctly.
-_FRONT_MATTER_RE = _re.compile(
-    r'\\(?:title|author|date|address|email|keywords|subjclass|dedicatory|thanks)'
-    r'(?:\[[^\]]*\])?'          # optional [short] argument
-    r'\s*'
-    r'(?P<arg>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?P&arg))*(?<!\\)\})',
-    _re.DOTALL,
-)
-
-# \newtheorem{name}{print-name}[numbered-within]  and  \newtheorem*{name}{print-name}
-# These define LaTeX theorem environments that must remain in the preamble;
-# they are NOT macro definitions that demacro can expand away.
-# Docs: https://texdoc.org/pkg/amsthm
-# MATCHES: \newtheorem{envname}{Print Name}[numbered-within]
-#          \newtheorem*{envname}{Print Name}
-#          \newtheoremrm{envname}{Print Name}  (tac.cls)
-#          \newtheoremit{envname}{Print Name}  (class-specific variants)
-# CAPTURES:
-#   nt_env → the environment name, e.g. "remark"
-# LIMITATIONS:
-#   [observed] Does not handle \theoremstyle{} — that is a separate command,
-#              not part of the \newtheorem declaration itself.
-#   [observed] BUG-20: \newtheoremrm (tac.cls) was missed before \w* was added.
-#   [observed] BUG-22: \newtheoremstyle (amsthm) has 9 args; must be excluded
-#              via negative lookahead to avoid partial capture.
-#   [observed] BUG-23: print-name may contain nested braces (e.g. \ref{...});
-#              must use balanced-brace group, not [^}]*.
-_NEWTHEOREM_RE = _re.compile(
-    r'\\newtheorem(?!style)\w*\*?'
-    r'\s*\{(?P<nt_env>[^}]*)\}' # {environment-name} — captured for deduplication
-    r'\s*(?:\[[^\]]*\])?'       # optional [numbered-within] before print-name
-    # {print-name} — balanced braces for nested \ref{...} etc. (BUG-23)
-    r'\s*(?P<nt_title>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?P&nt_title))*(?<!\\)\})'
-    r'\s*(?:\[[^\]]*\])?',      # optional [numbered-within] after print-name
-    _re.DOTALL,
-)
-
-
-# \excludeversion{name} and \includeversion{name} from the version package.
-# These define LaTeX environments by name in the preamble. Without them,
-# \begin{name}...\end{name} in the body fails with "Environment name undefined."
-# Also matches the optional-argument form \excludeversion[replacement]{name}.
-# The comment package provides \includecomment / \excludecomment (same semantics).
-# Docs: https://ctan.org/pkg/version, https://ctan.org/pkg/comment
-# MATCHES: \excludeversion{invisible}
-#          \excludeversion[(redacted)]{secret}
-#          \includeversion{visible}
-#          \includecomment{name}
-#          \excludecomment{name}
-# CAPTURES: full match only (no named groups needed)
-# LIMITATIONS:
-#   [observed] \excludeversion optional arg [text] captured correctly.
-#   [inferred] Nested braces in optional arg not supported (unlikely in practice).
-_VERSION_ENV_RE = _re.compile(
-    r'\\(?:exclude|include)(?:version|comment)'
-    r'\s*(?:\[[^\]]*\])?'   # optional [replacement text] (excludeversion only)
-    r'\s*\{[^}]*\}',
-    _re.DOTALL,
-)
-
-
-# Color definition commands from the xcolor package.
-# These define named colors used in the body via \textcolor, \color, \colorbox, etc.
-# Without them, the pipeline output fails with "Undefined color 'name'".
-# Docs: https://ctan.org/pkg/xcolor (xcolor.pdf §2.1)
-# MATCHES: \definecolor{darkgreen}{rgb}{0,0.5,0}
-#          \definecolor[named]{MyGreen}{rgb}{0,0.5,0}
-#          \colorlet{myblue}{blue!70!black}
-#          \colorlet[named]{myblue}{blue}
-#          \DefineNamedColor{named}{MyRed}{rgb}{1,0,0}
-#          \providecolor{foo}{rgb}{1,0,0}
-#          \preparecolor{foo}{rgb}{1,0,0}
-# CAPTURES: full match only (no named groups needed)
-# LIMITATIONS:
-#   [observed] \definecolor, \colorlet, \DefineNamedColor tested via playground.
-#   [inferred] \providecolor, \preparecolor have same syntax as \definecolor
-#              (xcolor.pdf §2.1); not separately tested.
-#   [inferred] Color expressions with ! (e.g. blue!70!black) inside braces are
-#              captured correctly since the pattern uses [^}]*.
-_DEFINECOLOR_RE = _re.compile(
-    r'\\(?:definecolor|DefineNamedColor|colorlet|providecolor|preparecolor)'
-    r'\s*(?:\[[^\]]*\])?'        # optional [type] argument
-    r'(?:\s*\{[^}]*\}){2,4}',   # 2–4 brace-delimited arguments
-    _re.DOTALL,
-)
 
 
 def build_minimal_preamble(raw_tex: str) -> str:
@@ -153,10 +69,10 @@ def build_minimal_preamble(raw_tex: str) -> str:
 
     Package parsing is delegated to
     :func:`texphage.find_packages.find_explicit_package_calls`, which uses the
-    same ``find_pkg_lib`` regex as the rest of the package-analysis machinery.
+    same ``_FIND_PKG_LIB_RE`` regex as the rest of the package-analysis machinery.
     """
-    begin_doc = raw_tex.find(r'\begin{document}')
-    raw_preamble = raw_tex[:begin_doc] if begin_doc != -1 else raw_tex
+    begin_doc_m = _BEGIN_DOCUMENT_RE.search(raw_tex)
+    raw_preamble = raw_tex[:begin_doc_m.start()] if begin_doc_m else raw_tex
     docclass_m = _DOCCLASS_RE.search(raw_preamble)
     docclass = docclass_m.group(0) if docclass_m else r'\documentclass{article}'
     pkg_lines = [call.verbatim for call in find_explicit_package_calls(raw_preamble)]
@@ -197,12 +113,6 @@ def build_minimal_preamble(raw_tex: str) -> str:
 
 # LaTeX image-search extensions, tried in order when no extension is given.
 _IMAGE_EXTS = ['.pdf', '.eps', '.png', '.jpg', '.jpeg', '.tikz', '.pgf', '.svg']
-
-_INCLUDEGRAPHICS_RE = re.compile(
-    r'\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}'
-)
-_BIBLIOGRAPHY_RE    = re.compile(r'\\bibliography\s*\{([^}]+)\}')
-_ADDBIBRESOURCE_RE  = re.compile(r'\\addbibresource\s*\{([^}]+)\}')
 
 
 @dataclass
@@ -256,9 +166,8 @@ def find_attachments(tex: str, src_dir: str | Path) -> list[Attachment]:
 
     # --- \bibliography{file1,file2,...} ---
     for m in _BIBLIOGRAPHY_RE.finditer(tex):
-        for name in m.group(1).split(','):
-            name = name.strip()
-            bib = src_dir / (name if name.endswith('.bib') else name + '.bib')
+        for name in _BIB_FILE_NAME_RE.findall(m.group(1)):
+            bib = src_dir / (name if _BIB_EXT_RE.search(name) else name + '.bib')
             if bib.exists():
                 _add(name, bib)
 

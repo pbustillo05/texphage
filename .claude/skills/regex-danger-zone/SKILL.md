@@ -56,8 +56,8 @@ understand why this invariant exists.
 
 ## The Regex Torture Test
 
-Before committing any change to `_regex.py` or the `find_all` pattern in
-`demacro.py`, you must run the regex torture test and ensure it passes. This
+Before committing any change to `_regex.py` (including `_FIND_ALL_RE`), you
+must run the regex torture test and ensure it passes. This
 test is located in `tests/test_demacro.py` and uses the fixture
 `tests/fixtures/regex_torture_test.tex`. This test ensures that your change
 does not break any previously fixed edge cases.

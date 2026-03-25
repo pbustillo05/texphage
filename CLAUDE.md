@@ -41,26 +41,35 @@ to BUGS.md and note exactly what you tried — but this should be rare.
 
 ## Subagents
 
-Invoke these with "Run testing agent", "Fix BUG-N", or "Run quarterly audit".
-Claude Code will delegate automatically based on those trigger phrases.
+Invoke these with "Run testing agent", "Fix BUG-N", "Run quarterly audit",
+or "Run regex audit". Claude Code will delegate automatically.
 - `testing-agent`   — downloads arXiv papers, runs pipeline, logs bugs
 - `coding-agent`    — fixes a specific bug in BUGS.md
 - `quarterly-audit` — scans CTAN for unrecognised macro patterns
+- `regex-audit`     — audits all patterns in `_regex.py`: adds missing
+                      MATCHES/CAPTURES/LIMITATIONS/USED BY comments, writes
+                      playground-backed tests, checks naming hygiene
 
 ## Always-on rules
 
 - **"Write a note / write a prompt"** → always create or update a file in
   `.claude/notes/`. Load the `write-note` skill when this is requested.
 - Write a failing test before touching any code.
-- Add `MATCHES/CAPTURES/LIMITATIONS` comment before touching any regex.
-  Load the `regex-danger-zone` skill before any regex change.
-- **All string pattern-finding and pattern-replacement must use `regex`.**
-  Never use `str.find()`, `.startswith()`, `.endswith()`, `.isalpha()`,
-  `.isdigit()`, `.index()`, character loops, or manual brace-counting to
-  detect structure in a LaTeX string. If you need to find a pattern in a
-  string, write a compiled `regex` pattern with a `MATCHES/CAPTURES/LIMITATIONS`
-  comment. The only exemptions are non-structural utility operations (e.g.,
-  stripping whitespace from a shell command result, splitting a Python path).
+- **All string pattern-finding and pattern-replacement must use `regex`.
+  No exceptions.** Never use `str.find()`, `.startswith()`, `.endswith()`,
+  `.isalpha()`, `.isdigit()`, `.index()`, character loops, or manual
+  brace-counting to detect structure in a LaTeX string.
+  - **Writing a new pattern?** Load the `regex-writing` skill first. It
+    covers naming conventions (`_RE`/`_PATTERN`/`snake_case`), section
+    placement in `_regex.py`, the mandatory `MATCHES/CAPTURES/LIMITATIONS/USED BY`
+    comment block, sub-pattern reuse, and the preprocessing invariant.
+  - **Modifying an existing pattern?** Load `regex-danger-zone` first. It
+    covers interdependency warnings, named-capture renaming risks, the
+    `build_dictionary()` elif-chain order, and the torture-test protocol.
+  - All compiled patterns live exclusively in `src/texphage/_regex.py`.
+    No `re.compile(...)` calls anywhere else. No `import re` (stdlib) anywhere.
+  - The only exemptions are genuinely non-structural utility operations
+    (stripping whitespace from a shell command result, splitting a Python path).
 - Never commit `tests/runs/` content (except `tests/runs/HISTORY.md`), tarballs, or compiled PDFs.
 - Run `pytest tests/ -v && ruff check src/ && mypy src/texphage/`
   after every change before committing.

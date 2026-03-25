@@ -721,6 +721,60 @@ def test_build_minimal_preamble_preserves_DefineNamedColor_BUG_24():
 # ---------------------------------------------------------------------------
 
 
+def test_body_newlines_only_at_par():
+    r"""Body invariant: every \n in the expanded body must be preceded by \par.
+
+    preprocessing() collapses whitespace to single spaces, so the only \n that
+    should appear in the final body are those inserted by the BUG-12 fix
+    (pipeline.py: expanded_body.replace(r'\par ', r'\par' + '\n')).
+
+    Any other source of \n — verbatim restore re-introducing bare newlines,
+    macro expansions that produce literal newlines, or secondary newline
+    insertions — violates the 5-line format contract.
+
+    This test uses a document with no verbatim environments so that the
+    invariant applies absolutely: every \n must immediately follow \par.
+    """
+    import re
+    import tempfile
+    import os
+
+    from texphage.pipeline import texphage
+
+    body_lines = '\n\n'.join(
+        f'Paragraph {i} with some content and a formula $x_{i} = {i}$.'
+        for i in range(20)
+    )
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsmath}\n"
+        "\\begin{document}\n"
+        + body_lines + "\n"
+        "\\end{document}"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        main = os.path.join(tmp, 'main.tex')
+        with open(main, 'w') as f:
+            f.write(raw_tex)
+        canonical_tex, _ = texphage(tmp)
+
+    body_start = canonical_tex.find(r'\begin{document}') + len(r'\begin{document}')
+    body_end   = canonical_tex.find(r'\end{document}')
+    # Strip the single structural \n that the format assembly adds immediately
+    # after \begin{document} and before \end{document} — those are intentional
+    # frame characters, not content newlines.
+    body = canonical_tex[body_start:body_end].strip('\n')
+
+    # Every remaining \n must be immediately preceded by \par.
+    # Pattern: a newline NOT preceded by the literal string \par.
+    stray = re.findall(r'(?<!\\par)\n', body)
+    assert not stray, (
+        f"Body contains {len(stray)} stray newline(s) not at \\par boundaries.\n"
+        f"Body excerpt around first stray \\n: "
+        f"{body[max(0, body.index(chr(10)) - 40):body.index(chr(10)) + 40]!r}"
+    )
+
+
 def test_newtheorem_guarded_against_class_predefs_BUG_25():
     r"""BUG-25: \newtheorem declarations must be wrapped in \@ifundefined guards.
 

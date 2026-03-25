@@ -60,255 +60,34 @@ from typing import Any
 import regex as re
 
 from texphage._regex import (
+    _ARG_REF_DOUBLE_RE,
+    _ARG_REF_RE,
+    _BLANK_LINE_RE,
+    _BLOCK_COMMENT_RE,
+    _COMMENT_RE,
+    _CSNAME_DEF_RE,
+    _DEF_PARAM_PIECE_RE,
+    _DOCUMENT_SPLIT_RE,
+    _FIND_ALL_RE,
+    _OUTER_DELIMITERS_RE,
+    _PAR_TOKENIZER_RE,
+    _VERBATIM_ENVS_RE,
+    _WHITESPACE_RE,
+    _XARGS_POSITIONAL_RE,
+    _XPARSE_PATTERN,
+    com_name,
     embed_braces,
     embed_brackets,
-    find_com,
-    find_env,
-    num_args,
+    env_name,
+    find_specific_com,
     token,
-    xparse,
 )
 
 from .find_packages import find_used_packages
 
 logger = logging.getLogger(__name__)
 
-## ALL NECESSARY REGEX
-
-# Naming a command
-### IDEALLY: we use the following find_com to catch macros using a single symbol as a command. Unfortunately, this means a bit more work to adapt the regex..
-# find_com = re.compile(r'\\([a-zA-Z]+|[^a-zA-Z])')
-new_csname = lambda s : r'(?<%s>%s|\{ ?%s ?\})' %(s, find_com.pattern, find_com.pattern)
-def com_name(csname: str) -> str:
-    m = find_com.search(csname)
-    assert m is not None
-    return str(m[1])
-
-
-def env_name(csname: str) -> tuple[str, str]:
-    name = find_env.search(csname)
-    assert name is not None
-    if name[2]:
-        return (str(name[1]) + '_star', str(name[1]) + r' ?\*')
-    else:
-        return (str(name[1]), str(name[1]))
-
-
-find_specific_com = lambda s : r'(?<%s>\\(?:%s)(?![a-zA-Z]))' %(s,s)
-
-
-def find_specific_env(csname: str) -> str:
-    if csname[0] == '{':
-        truncated = csname[1:-1]
-        if re.fullmatch(r'[a-zA-Z]+', truncated):
-            # 5 placeholders: group-name, begin-csname, end-csname, cmd-name, end-cmd-name
-            return r'(?<%s>\\begin ?%s|\\end ?%s|\\%s(?![a-zA-Z])|\\end%s(?![a-zA-Z]))' % (truncated, csname, csname, truncated, truncated)
-        elif re.fullmatch(r'[^a-zA-Z]', truncated):
-            # 4 placeholders: group-name, begin-csname, end-csname, cmd-name
-            return r'(?<%s>\\begin ?%s|\\end ?%s|\\%s(?![a-zA-Z]))' % (truncated, csname, csname, truncated)
-    elif csname[0] == '\\':
-        pass #technically, if this token expands to characters, it can be used as a macro name
-    else:
-        return r'(?<%s>\\begin ?%s|\\end ?%s)' %(csname, csname, csname)
-    return ''
-
-# Commands
-
-# MATCHES: \def\cmdname<pattern>{body}  or  \gdef\cmdname<pattern>{body}
-# CAPTURES:
-#   def_csname   → the command name token, e.g. \foo or {\foo}
-#   def_pattern  → TeX parameter text between name and body, e.g. "#1 and #2"
-#                  (may be empty for zero-argument commands)
-#   def_content  → the replacement body: a single token or a {brace group}
-# LIMITATIONS:
-#   - \long\def and \outer\def prefixes not handled (they are ignored in practice)
-#   - Single-symbol command names (\|, \!) not matched (find_com only handles [a-zA-Z]+)
-#   - Delimited arguments (token patterns) are captured verbatim; build_dictionary
-#     converts #N placeholders into named capture groups at expansion time
-#   - [inferred] Doubled hashes (##) in the parameter text, used to represent a
-#     literal # in the replacement body, are not supported by _def_param_pattern.
-find_def = r'\\g?def ?%s(?<def_pattern>[^\{]*)%s' %(new_csname('def_csname'), token('def_content'))
-
-# MATCHES: \expandafter\def\csname<name>\endcsname{body}
-#          and \expandafter\gdef\csname<name>\endcsname{body}
-#          This is the standard TeX idiom for defining a command from a string.
-#          Also matches the \long\expandafter variant.
-# CAPTURES:
-#   csname_def_name    → the literal name of the new command (without \)
-#   csname_def_content → the replacement body
-# LIMITATIONS:
-#   [inferred] Name must consist of [a-zA-Z@]+ only; dynamic names involving
-#              \string, token concatenation, or other expansion are not supported.
-#   [inferred] \expandafter\edef\csname form not handled (edef semantics require
-#              immediate expansion of the body at definition time).
-#   [observed] Direct preamble use and preamble-call-expanded use both covered:
-#              the direct form is caught by find_all; indirect forms (produced by
-#              expanding a macro call in the preamble) are caught by the second pass
-#              in build_dictionary. Playground confirmed via BUG-19 fixture.
-find_csname_def = (
-    r'\\(?:long ?)?expandafter ?\\g?def ?\\csname ?'
-    r'(?<csname_def_name>[a-zA-Z@]+) ?\\endcsname ?'
-    + token('csname_def_content')
-)
-
-# MATCHES: \edef\cmdname<pattern>{body}  or  \xdef\cmdname<pattern>{body}
-# CAPTURES:
-#   edef_csname   → the command name token
-#   edef_pattern  → parameter text (same as def_pattern)
-#   edef_content  → replacement body, expanded immediately using current macro_dict
-# LIMITATIONS:
-#   - Same single-symbol and prefix limitations as find_def
-#   - \xdef is \global\edef; the \global scope is ignored (same semantics for expansion)
-#   - Expansion is done by calling expand() on edef_content at parse time;
-#     fully recursive \edef chains may not expand completely in one pass
-find_edef = r'\\(e|x)def ?%s(?<edef_pattern>[^{]*)%s' %(new_csname('edef_csname'), token('edef_content'))
-
-# MATCHES: \let\alias\original  or  \let\alias=\original  or  \let\alias<token>
-#          Also \LetLtxMacro and \GlobalLetLtxMacro (letltxmacro package).
-#          Docs: https://ctan.org/pkg/letltxmacro
-# CAPTURES:
-#   let_csname          → the new alias name
-#   let_content         → the right-hand side: either a control sequence or a single char
-#   let_called_csname   → if RHS is a control sequence, its name (without \)
-# LIMITATIONS:
-#   - If let_called_csname is already in macro_dict, the alias inherits the same
-#     expansion pattern. If not, let_content is stored as a literal string replacement.
-#   - \futurelet is not handled.
-find_let = r'\\(?:let|LetLtxMacro|GlobalLetLtxMacro) ?%s ?=? ?(?<let_content>(?:\\(?<let_called_csname>[a-zA-Z]+))|.)' %new_csname('let_csname')
-
-# MATCHES: \newcommand{\cmdname}[N][default]{body}  and variants:
-#          \renewcommand, \providecommand, \newrobustcmd, \renewrobustcmd,
-#          \providerobustcmd (etoolbox), \DeclareRobustCommand,
-#          \newcommandtwoopt, \renewcommandtwoopt (twoopt package),
-#          all optionally followed by 'x' (xargs variant).
-#          Docs: https://ctan.org/pkg/xargs  https://ctan.org/pkg/etoolbox
-#                https://ctan.org/pkg/twoopt
-# CAPTURES:
-#   new_com_csname    → the command name
-#   new_com_xargs     → 'x' if this is an xargs variant, else None
-#   new_com_num_args  → the optional [N] argument count, e.g. "2"
-#   new_com_default1  → first optional default value [default]
-#   new_com_default2  → second optional default (twoopt only)
-#   new_com_content   → the replacement body
-# LIMITATIONS:
-#   - \newcommand* (starred form) is matched but treated identically to unstarred
-#     (starred disallows \par in args; irrelevant for macro expansion)
-#   - xargs positional key [i=default] syntax (e.g. [1=Hello]) is NOT supported;
-#     see BUGS.md for the open issue
-#   - robustcmd 'x' variants technically don't exist but are harmlessly matched
-find_new_com = r'\\(?:(?:renew|new|provide)(?:command(?:twoopt)?|robustcmd)|DeclareRobustCommand)(?<new_com_xargs>x)? ?\*? ?%s ?%s ?%s ?%s ?%s' %(new_csname('new_com_csname'), num_args('new_com_num_args'), embed_braces('new_com_default1'), embed_braces('new_com_default2'), token('new_com_content')) #technically, the robustcmd "x" variants don't exist
-#find_twoopt = r'\\(renew|new|provide)commandtwoopt ?\*? ?%s ?%s ?%s ?%s ?%s' %(new_csname('new_com_csname'), num_args('new_com_num_args'), embed_braces('new_com_default1'), embed_braces('new_com_default2'), token('new_com_content'))
-
-# MATCHES: \NewDocumentCommand{\cmdname}{arg-spec}{body}  and variants:
-#          \RenewDocumentCommand, \ProvideDocumentCommand, \DeclareDocumentCommand,
-#          \NewExpandableDocumentCommand (and Renew/Provide/Declare variants).
-#          xparse is now part of the LaTeX kernel. Docs: https://ctan.org/pkg/xparse
-# CAPTURES:
-#   new_doc_com_csname  → the command name
-#   new_doc_com_args    → the xparse argument specification string, e.g. "m o O{default} s"
-#   new_doc_com_content → the replacement body
-# LIMITATIONS:
-#   - Argument types supported: m, o, O{default}, s, t<token>
-#   - Unsupported: r<tok1><tok2>, R, v, b, e, E, >, +m, +o, etc.
-#   - \IfNoValueTF / \IfBooleanTF conditionals inside the body are NOT evaluated
-find_new_doc_com = r'\\(?:New|Renew|Provide|Declare)(?:Expandable)?DocumentCommand ?%s ?%s ?%s' %(new_csname('new_doc_com_csname'), token('new_doc_com_args'), token('new_doc_com_content'))
-
-# Environments
-
-# MATCHES: \newenvironment{name}[N][default]{begin}{end}  and \renewenvironment variants,
-#          optionally with 'x' suffix (xargs). Docs: https://ctan.org/pkg/xargs
-# CAPTURES:
-#   new_env_csname    → environment name token
-#   new_env_xargs     → 'x' if xargs variant, else None
-#   new_env_num_args  → optional [N] argument count
-#   new_env_default   → optional [default] for first argument
-#   new_env_begin     → begin-code token or {brace group}
-#   new_env_end       → end-code token or {brace group}
-# LIMITATIONS:
-#   - xargs positional key syntax not supported (same as find_new_com)
-#   - Starred environments (name*) are handled via env_name() returning (name_star, name ?\*)
-find_new_env = r'\\(?:re)?newenvironment(?<new_env_xargs>x)? ?\*? ?%s ?%s ?%s ?%s ?%s' %(token('new_env_csname'), num_args('new_env_num_args'), embed_braces('new_env_default'), token('new_env_begin'), token('new_env_end'))
-
-# MATCHES: \NewDocumentEnvironment{name}{arg-spec}{begin}{end}  and variants.
-#          Docs: https://ctan.org/pkg/xparse
-# CAPTURES:
-#   new_doc_env_csname  → environment name
-#   new_doc_env_args    → xparse argument specification string
-#   new_doc_env_begin   → begin-code
-#   new_doc_env_end     → end-code
-# LIMITATIONS:
-#   - Same xparse argument type limitations as find_new_doc_com
-find_new_doc_env = r'\\(?:New|Renew|Provide|Declare)DocumentEnvironment ?%s ?%s ?%s ?%s' %(token('new_doc_env_csname'), token('new_doc_env_args'), token('new_doc_env_begin'), token('new_doc_env_end'))
-
-# MATCHES: \NewEnviron{name}[N][default]{body}[\finalcode]  and \RenewEnviron.
-#          The environ package captures the body as \BODY. Docs: https://ctan.org/pkg/environ
-# CAPTURES:
-#   New_Env_csname    → environment name
-#   New_Env_num_args  → optional [N] argument count
-#   New_Env_default   → optional [default]
-#   New_Env_content   → the macro body (references \BODY for the environment content)
-#   New_Env_end       → optional [final-code] appended after body expansion
-# LIMITATIONS:
-#   - \BODY substitution is not performed during expansion (body is treated as opaque text)
-#   - \environbodyname customisation not handled
-find_New_Environ = r'\\(?:Ren|N)ewEnviron ?%s ?%s ?%s ?%s ?%s' %(token('New_Env_csname'), num_args('New_Env_num_args'), embed_braces('New_Env_default'), token('New_Env_content'), embed_braces('New_Env_end'))
-
-# MATCHES: \newenviron{name}[N][default]{begin-code}{body}  and \renewenviron.
-#          The newenviron package (older alternative to environ). Docs: https://ctan.org/pkg/newenviron
-# CAPTURES:
-#   New_Env_csname    → environment name  (shares group names with find_New_Environ)
-#   New_Env_num_args  → optional [N]
-#   New_Env_default   → optional [default]
-#   New_Env_begin     → begin-code
-#   New_Env_content   → body macro (references \envbody or \<name>body)
-# LIMITATIONS:
-#   - \envbody substitution not performed (same limitation as find_New_Environ)
-find_new_environ = r'\\(?:re)?newenviron ?%s ?%s ?%s ?%s ?%s' %(token('New_Env_csname'), num_args('New_Env_num_args'), embed_braces('New_Env_default'), token('New_Env_begin'), token('New_Env_content'))
-
-# MATCHES: \DeclareMathOperator{\cmdname}{symbol}  and \DeclareMathOperator*{\cmdname}{symbol}
-#          (amsmath). Defines \cmdname to typeset as \operatorname{symbol} in math mode.
-#          Docs: https://ctan.org/pkg/amsmath (amsldoc.pdf §3.4)
-# CAPTURES:
-#   dmo_csname  → the command name token
-#   dmo_star    → '*' if starred form (limits above/below), else None
-#   dmo_content → the operator symbol, e.g. {Op} or {lim\,sup}
-# LIMITATIONS:
-#   - The starred vs non-starred distinction changes TeX limit placement; for
-#     demacro we expand both to \operatorname{...} / \operatorname*{...} respectively.
-find_dmo = r'\\DeclareMathOperator ?(?<dmo_star>\*)? ?%s ?%s' % (new_csname('dmo_csname'), token('dmo_content'))
-
-# Weird stuff
-find_weird_stuff = r'(?<mathpalette>\\mathpalette)|(?<makeatother>\\makeatother)|(?<makeatletter>\\makeatletter)'
-
-## KEYS: pgfkeys
-key = lambda s : r' ?(?<%s>(?:\/(?!\.))?(?:[^=,\/]+?(?:\/(?!\.)))*)(?<%s>[^=,\/]+?)(?<%s>\/.[^=,\/]+?)? ?' %(s + '_path', s + '_name', s + '_handler')
-value = lambda s : r'(?<%s>(?:%s|[^,\{\}])*)' %(s, embed_brackets('brackted_' + s))
-key_value = r'(?!\s)%s(?:=%s)?(?=,|\})' %(key('key'), value('value'))
-
-# MATCHES: any macro-definition command in the preamble — the union of all patterns above.
-# CAPTURES: top-level groups 'def', 'edef', 'let', 'new_com', 'new_env',
-#           'new_doc_com', 'new_doc_env' identify which branch matched.
-#           All sub-captures from the matched branch are also available.
-# NOTE: find_New_Environ and find_new_environ are NOT included here; they are
-#       handled by find_new_env's branch in build_dictionary via the xargs flag.
-# LIMITATIONS:
-#   - find_weird_stuff (mathpalette, makeatletter) is not included; those are
-#     detected in build_dictionary but not acted upon in the current implementation.
-#   - The elif chain order in build_dictionary() is load-order-sensitive:
-#     \edef must expand immediately using the current dict state; do not reorder.
-find_all = re.compile(r'(?<def>%s)|(?<edef>%s)|(?<let>%s)|(?<new_com>%s)|(?<new_env>%s)|(?<new_doc_com>%s)|(?<new_doc_env>%s)|(?<dmo>%s)|(?<csname_def>%s)' %(find_def, find_edef, find_let, find_new_com, find_new_env, find_new_doc_com, find_new_doc_env, find_dmo, find_csname_def))
-
-## PREPROCESSING: verbatim protection, whitespace normalisation, package list
-
-# Environments whose content must not be whitespace-normalised.
-# They produce literal verbatim output; collapsing their whitespace corrupts the PDF.
-_VERBATIM_ENVS = re.compile(
-    r'\\begin\{(verbatim\*?|Verbatim\*?|lstlisting|minted|alltt|BVerbatim|LVerbatim)\}'
-    r'.*?'
-    r'\\end\{\1\}',
-    re.DOTALL,
-)
-# Placeholder: long unique prefix, no TeX-special characters.
+# Placeholder token for stashed verbatim blocks: long unique prefix, no TeX-special chars.
 _VERBATIM_PLACEHOLDER = 'texphageVERBATIM{}ENDVERBATIM'
 
 
@@ -353,80 +132,33 @@ def _strip_par_in_groups(tex: str) -> str:
         'equation', 'eqnarray', 'math', 'displaymath',
     })
 
-    _BEGIN_PREFIX = r'\begin'
-    _END_PREFIX = r'\end'
-
     out: list[str] = []
     brace_depth = 0
     math_env_depth = 0
-    i = 0
-    n = len(tex)
-    while i < n:
-        c = tex[i]
-        if c == '\\':
-            # Check for \par when inside any group (brace or math environment).
-            # After whitespace collapse \par is always followed by ' ' or end-of-string.
-            if (brace_depth > 0 or math_env_depth > 0) and tex[i:i+4] == r'\par':
-                after = tex[i+4] if i + 4 < n else ''
-                if after == ' ' or after == '' or not after.isalpha():
-                    i += 4
-                    if i < n and tex[i] == ' ':
-                        i += 1  # consume the trailing space too
-                    continue
-
-            # Check for \begin{envname} → maybe increment math_env_depth.
-            if tex[i:i+6] == _BEGIN_PREFIX:
-                j = i + 6
-                if j < n and tex[j] == ' ':
-                    j += 1
-                if j < n and tex[j] == '{':
-                    # Extract environment name (up to closing }).
-                    k = tex.index('}', j) + 1
-                    env_name = tex[j+1:k-1]  # text between { and }
-                    # Strip trailing * for starred variants (gather* → gather).
-                    base_name = env_name.rstrip('*')
-                    out.append(tex[i:k])
-                    if base_name in _PAR_FORBIDDEN_ENVS:
-                        math_env_depth += 1
-                    i = k
-                    continue
-
-            # Check for \end{envname} → maybe decrement math_env_depth.
-            if tex[i:i+4] == _END_PREFIX:
-                j = i + 4
-                if j < n and tex[j] == ' ':
-                    j += 1
-                if j < n and tex[j] == '{':
-                    k = tex.index('}', j) + 1
-                    env_name = tex[j+1:k-1]
-                    base_name = env_name.rstrip('*')
-                    out.append(tex[i:k])
-                    if base_name in _PAR_FORBIDDEN_ENVS and math_env_depth > 0:
-                        math_env_depth -= 1
-                    i = k
-                    continue
-
-            # Copy the control sequence verbatim (so { } inside \{...\} aren't counted).
-            out.append(c)
-            i += 1
-            if i < n and tex[i].isalpha():
-                while i < n and tex[i].isalpha():
-                    out.append(tex[i])
-                    i += 1
-            elif i < n:
-                out.append(tex[i])
-                i += 1
-        elif c == '{':
+    for m in _PAR_TOKENIZER_RE.finditer(tex):
+        kind = m.lastgroup
+        if kind == 'par':
+            if brace_depth > 0 or math_env_depth > 0:
+                continue  # strip \par and its trailing space
+            out.append(m.group(0))
+        elif kind == 'begin':
+            out.append(m.group(0))
+            base = m.group('begin_env').rstrip('*')
+            if base in _PAR_FORBIDDEN_ENVS:
+                math_env_depth += 1
+        elif kind == 'end':
+            out.append(m.group(0))
+            base = m.group('end_env').rstrip('*')
+            if base in _PAR_FORBIDDEN_ENVS and math_env_depth > 0:
+                math_env_depth -= 1
+        elif kind == 'open':
             brace_depth += 1
-            out.append(c)
-            i += 1
-        elif c == '}':
+            out.append(m.group(0))
+        elif kind == 'close':
             brace_depth = max(0, brace_depth - 1)
-            out.append(c)
-            i += 1
-        else:
-            out.append(c)
-            i += 1
+            out.append(m.group(0))
+        else:  # ctrl or text
+            out.append(m.group(0))
     return ''.join(out)
 
 
@@ -469,25 +201,24 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
         verbatim_store[key] = m.group(0)
         return key
 
-    tex = _VERBATIM_ENVS.sub(_stash, tex)
+    tex = _VERBATIM_ENVS_RE.sub(_stash, tex)
 
     # Step 2: Strip LaTeX comments.
     # (?<!\\) negative lookbehind: only % not preceded by backslash.
     # [^\n]* consumes rest of line, preserving the newline for Step 3.
-    tex = re.sub(r'(?<!\\)%[^\n]*', '', tex)
+    tex = _COMMENT_RE.sub('', tex)
 
     # Step 2b: Strip block comment environments (comment package).
     # \begin{comment}...\end{comment} produces no output; discard entirely.
-    # re.DOTALL needed because block comments span multiple lines.
-    tex = re.sub(r'\\begin\{comment\}.*?\\end\{comment\}', '', tex, flags=re.DOTALL)
+    tex = _BLOCK_COMMENT_RE.sub('', tex)
 
     # Step 3: Preserve paragraph breaks BEFORE collapsing whitespace.
     # \n[ \t]*\n+ = one or more blank lines.
     # MUST run before Step 4, or blank lines collapse to spaces.
-    tex = re.sub(r'\n[ \t]*\n+', r' \\par ', tex)
+    tex = _BLANK_LINE_RE.sub(r' \\par ', tex)
 
     # Step 4: Collapse all remaining whitespace to exactly one space.
-    tex = re.sub(r'[ \t\n]+', ' ', tex)
+    tex = _WHITESPACE_RE.sub(' ', tex)
 
     # Step 4.5: Remove \par tokens inside brace groups.
     # Comment stripping can leave blank lines inside {arg} → \par in arg → TeX error.
@@ -498,9 +229,7 @@ def preprocessing(tex: str) -> tuple[str, str, list]:
         tex = tex.replace(key, value)
 
     # Step 6: Split preamble from body.
-    parts = re.split(
-        r'\\begin ?\{ ?document ?\}|\\end ?\{ ?document ?\}', tex, maxsplit=2
-    )
+    parts = _DOCUMENT_SPLIT_RE.split(tex, maxsplit=2)
     if len(parts) < 3:
         return '', tex, find_used_packages(tex)
     preamble, document, _epilogue = parts
@@ -529,6 +258,9 @@ def _def_param_pattern(def_pattern: str) -> str:
     parameters (``#N`` with no following literal) are matched by ``token()``,
     which is exactly one TeX token or braced group — identical to TeX semantics.
 
+    Uses _DEF_PARAM_PIECE_RE to tokenize the parameter text without a
+    character-by-character loop.
+
     Example::
 
         '#1and#2'  →  r'(?<arg1>.*?)and(?<arg2><token>)'
@@ -536,33 +268,20 @@ def _def_param_pattern(def_pattern: str) -> str:
         ''         →  r''  (zero-arg \\def)
     """
     result = ''
-    i = 0
-    n = len(def_pattern)
-    while i < n:
-        if def_pattern[i] == '#':
-            i += 1
-            if i < n and def_pattern[i].isdigit():
-                digit = def_pattern[i]
-                i += 1
-                # Collect the delimiter: literal text up to next '#' or end.
-                j = i
-                while j < n and def_pattern[j] != '#':
-                    j += 1
-                delimiter = def_pattern[i:j]
-                i = j
-                if delimiter:
-                    # Delimited: skip optional space (TeX ignores spaces before
-                    # delimited args), match lazily, then the (escaped) delimiter.
-                    result += r' ?(?<%s>.*?)' % ('arg' + digit)
-                    result += re.escape(delimiter)
-                else:
-                    # Undelimited: skip optional space (TeX ignores spaces before
-                    # undelimited args), then exactly one TeX token or braced group.
-                    result += r' ?(?<%s>%s)' % ('arg' + digit, token('bracket_arg' + digit))
-            # '##' → literal '#': skip second '#' without emitting a group.
+    for m in _DEF_PARAM_PIECE_RE.finditer(def_pattern):
+        if m.group('hash') is not None:
+            digit = m.group('hash')
+            delimiter = m.group('delim')
+            if delimiter:
+                # Delimited: skip optional space, match lazily, then the delimiter.
+                result += r' ?(?<%s>.*?)' % ('arg' + digit)
+                result += re.escape(delimiter)
+            else:
+                # Undelimited: skip optional space, then exactly one TeX token.
+                result += r' ?(?<%s>%s)' % ('arg' + digit, token('bracket_arg' + digit))
         else:
-            result += re.escape(def_pattern[i])
-            i += 1
+            # Literal text before the first parameter slot.
+            result += re.escape(m.group('lit'))
     return result
 
 
@@ -571,11 +290,14 @@ def _strip_delimiters(s: str | None) -> str:
     """Strip a single layer of outer {} or [] delimiters from a captured token.
 
     Returns '' for None (unmatched optional group).
+    Uses _OUTER_DELIMITERS_RE to avoid direct character-index access.
     """
     if s is None:
         return ''
-    if len(s) >= 2 and ((s[0] == '{' and s[-1] == '}') or (s[0] == '[' and s[-1] == ']')):
-        return s[1:-1]
+    m = _OUTER_DELIMITERS_RE.match(s)
+    if m:
+        # group(1) is the brace-delimited content; group(2) is bracket-delimited.
+        return m.group(1) if m.group(1) is not None else (m.group(2) or '')
     return s
 
 
@@ -589,7 +311,7 @@ def content_replacement(
 
     def content(arg: Any) -> str:
         def arg_replacement(num: Any) -> str:
-            if re.search(r'#', num[1]):
+            if _ARG_REF_DOUBLE_RE.match(num[1]):
                 return num[1]
             key = num[1][-1:]
             try:
@@ -605,13 +327,13 @@ def content_replacement(
             if key in boolean_list:
                 return r'\BooleanTrue'
             return _strip_delimiters(raw)
-        return re.sub(r'#(#*\d)', arg_replacement, local_content)
+        return _ARG_REF_RE.sub(arg_replacement, local_content)
     return content
 
 def build_dictionary(tex: str) -> tuple[dict, str]:
     """Parse the preamble and build a macro expansion dictionary.
 
-    Iterates over find_all matches in order. For each definition found,
+    Iterates over _FIND_ALL_RE matches in order. For each definition found,
     adds an entry to macro_dict: {csname: [match_pattern, replacement_fn]}.
     Also builds find_macro — a regex alternation string used by expand() to
     find uses of defined macros in the document body.
@@ -625,8 +347,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
         (leading | stripped).
     """
     macro_dict, find_macro = {}, ''
-    # to_expand = r'(?<_pattern_>%s)' %pattern.pattern
-    for macro in re.finditer(find_all, tex):
+    for macro in _FIND_ALL_RE.finditer(tex):
         # csname = macro.group(macro.lastgroup + '_csname')
         # try:
         #     if re.search(to_expand, macro.group(macro.lastgroup + '_content')):
@@ -678,7 +399,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
                     if macro.group('new_com_xargs') and raw1:
                         # xargs [i=val] syntax: strip leading "i=" position prefix
                         inner = raw1[1:-1]
-                        m2 = re.match(r'^\d+=', inner)
+                        m2 = _XARGS_POSITIONAL_RE.match(inner)
                         if m2:
                             raw1 = '[' + inner[m2.end():] + ']'
                     default_dict['1'] = raw1
@@ -688,7 +409,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
                     raw2 = macro.group('new_com_default2')
                     if macro.group('new_com_xargs') and raw2:
                         inner = raw2[1:-1]
-                        m2 = re.match(r'^\d+=', inner)
+                        m2 = _XARGS_POSITIONAL_RE.match(inner)
                         if m2:
                             raw2 = '[' + inner[m2.end():] + ']'
                     default_dict['2'] = raw2
@@ -708,7 +429,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
             arg_num = 0
             default_dict = {}
             boolean_list = []
-            for args in re.finditer(xparse, macro.group('new_doc_com_args')):
+            for args in re.finditer(_XPARSE_PATTERN, macro.group('new_doc_com_args')):
                 arg_num += 1
                 if args.lastgroup == 'm':
                     pattern += ' ?' + embed_brackets('arg' + str(arg_num))
@@ -761,7 +482,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
             arg_num = 0
             default_dict = {}
             boolean_list = []
-            for args in re.finditer(xparse, macro.group('new_doc_env_args')):
+            for args in re.finditer(_XPARSE_PATTERN, macro.group('new_doc_env_args')):
                 arg_num += 1
                 if args.lastgroup == 'm':
                     pattern += ' ?' + embed_brackets('arg' + str(arg_num))
@@ -813,7 +534,6 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
     # we expand any such macro calls found in the preamble and re-register the commands
     # they produce.  We only process macros whose raw call-site pattern matches in the
     # preamble text AND whose expansion contains the csname-def idiom.
-    _csname_def_re = re.compile(find_csname_def)
     # Collect (pattern, content_fn) for all command macros (environments are excluded
     # because their call syntax includes \begin{...} which would not appear outside
     # the document body in a definition-generating call).
@@ -822,7 +542,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
         try:
             for call_match in re.finditer(call_pattern, tex):
                 expanded_call = content_fn(call_match)
-                for def_m in _csname_def_re.finditer(expanded_call):
+                for def_m in _CSNAME_DEF_RE.finditer(expanded_call):
                     new_name = def_m.group('csname_def_name').strip()
                     if new_name and new_name not in macro_dict:
                         new_content = content_replacement(def_m.group('csname_def_content'))

@@ -47,7 +47,14 @@ LOCK_FILE  = RUNS_DIR / '.agent.lock'
 LOCK_TTL   = 4 * 3600   # seconds — stale lock threshold
 
 # Paper distribution per run (see AGENTS.md Step 2).
-_DEFAULT_CATEGORIES = ['math.CT', 'math.CT', 'math.AT', 'math.AT', 'cs.LO']
+# Legacy list kept for historical reproducibility (--sampling legacy).
+_LEGACY_CATEGORIES = ['math.CT', 'math.CT', 'math.AT', 'math.AT', 'cs.LO']
+
+# Path to the full arXiv category list (scripts/arxiv_categories.json).
+_CATEGORIES_JSON = Path(__file__).parent / 'arxiv_categories.json'
+
+# Append-only results log — written after each paper, never deleted.
+RESULTS_JSONL = REPO_ROOT / 'tests' / 'runs' / 'results.jsonl'
 
 logger = logging.getLogger(__name__)
 
@@ -113,20 +120,70 @@ def _download_arxiv(arxiv_id: str, dest_dir: Path) -> Path:
     return tarball
 
 
-def _sample_papers(n: int, seed: int) -> list[dict]:
-    """Return n paper metadata dicts, downloading from arXiv."""
+def _load_all_categories() -> list[str]:
+    """Load the full arXiv category list from arxiv_categories.json."""
+    if _CATEGORIES_JSON.exists():
+        return json.loads(_CATEGORIES_JSON.read_text())
+    # Fallback to legacy list if the JSON is missing.
+    logger.warning("arxiv_categories.json not found; falling back to legacy categories.")
+    return _LEGACY_CATEGORIES
+
+
+def _sample_categories(n: int, strategy: str, rng: random.Random) -> list[str]:
+    """Return n category strings according to *strategy*.
+
+    Args:
+        n:        Number of category slots to fill.
+        strategy: ``'uniform'`` — draw uniformly from all ~170 arXiv categories;
+                  ``'legacy'`` — repeat the original five-category list.
+        rng:      Seeded RNG instance for reproducibility.
+
+    Returns:
+        List of n category strings (may contain duplicates if n > pool size).
+    """
+    if strategy == 'legacy':
+        cats = (_LEGACY_CATEGORIES * ((n // len(_LEGACY_CATEGORIES)) + 1))[:n]
+        rng.shuffle(cats)
+        return cats
+
+    # Uniform: sample without replacement as far as possible, then wrap.
+    pool = _load_all_categories()
+    rng.shuffle(pool)
+    cats = (pool * ((n // len(pool)) + 1))[:n]
+    rng.shuffle(cats)
+    return cats
+
+
+def _sample_papers(n: int, seed: int, sampling: str = 'uniform') -> list[dict]:
+    """Return n paper metadata dicts, downloading from arXiv.
+
+    Args:
+        n:        Number of papers to sample.
+        seed:     Random seed for reproducibility.
+        sampling: Category sampling strategy — ``'uniform'`` (default) draws
+                  from all ~170 arXiv categories; ``'legacy'`` uses the
+                  original five-category list.
+    """
     sys.path.insert(0, str(REPO_ROOT / 'scripts'))
     from extractor import get_all_arxiv_ids  # type: ignore[import]
 
     rng = random.Random(seed)
-    cats = (_DEFAULT_CATEGORIES * ((n // len(_DEFAULT_CATEGORIES)) + 1))[:n]
-    rng.shuffle(cats)
+    cats = _sample_categories(n, sampling, rng)
 
     papers = []
     used: set[str] = set()
     year = datetime.date.today().strftime('%y')
     for cat in cats:
         ids = get_all_arxiv_ids(50, cat, year)
+        if not ids:
+            # Sparse category — try any other category from the pool.
+            fallback_pool = _load_all_categories()
+            rng.shuffle(fallback_pool)
+            for fb_cat in fallback_pool:
+                ids = get_all_arxiv_ids(50, fb_cat, year)
+                if ids:
+                    cat = fb_cat
+                    break
         rng.shuffle(ids)
         for arxiv_id in ids:
             if arxiv_id not in used:
@@ -469,13 +526,39 @@ def cleanup_run(id_run_dir: Path) -> None:
 # Main driver
 # ---------------------------------------------------------------------------
 
+def _append_result(entry: dict) -> None:
+    """Append a single result dict as one JSON line to results.jsonl."""
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(RESULTS_JSONL, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+
+
+def _rolling_success_rate(window: int = 20) -> float | None:
+    """Return rolling success rate over the last *window* papers, or None."""
+    if not RESULTS_JSONL.exists():
+        return None
+    lines = RESULTS_JSONL.read_text(encoding='utf-8').splitlines()
+    recent = lines[-window:]
+    if not recent:
+        return None
+    successes = sum(
+        1 for line in recent
+        if json.loads(line).get('success', False)
+    )
+    return successes / len(recent) * 100
+
+
 def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
-        keep_runs: bool = False, pipeline_mode: str = 'raw') -> dict:
+        keep_runs: bool = False, pipeline_mode: str = 'raw',
+        sampling: str = 'uniform') -> dict:
     """Run the full testing agent. Returns the manifest dict.
 
     Args:
         pipeline_mode: ``'raw'`` (default) or ``'canonical'``.  See
                        :func:`_run_pipeline` for details.
+        sampling:      Category sampling strategy — ``'uniform'`` (default)
+                       draws from all ~170 arXiv categories; ``'legacy'``
+                       uses the original five-category list.
     """
     _acquire_lock()
     try:
@@ -487,12 +570,13 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
         if arxiv_ids:
             papers = [{'arxiv_id': aid, 'category': 'user-provided'} for aid in arxiv_ids]
         else:
-            papers = _sample_papers(n, seed)
+            papers = _sample_papers(n, seed, sampling=sampling)
 
         manifest: dict = {
             'run_id': run_id,
             'seed': seed,
             'pipeline_mode': pipeline_mode,
+            'sampling': sampling,
             'papers': [],
         }
 
@@ -572,15 +656,29 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
 
             result = {'arxiv_id': arxiv_id, 'status': 'ok', **comp}
             results_summary.append(result)
+            severity = comp.get('severity', 'unknown')
+            min_ssim = min(comp.get('ssim_per_page', [1.0]) or [1.0])
             logger.info(
                 "%s: severity=%s, pages=%s→%s, min_ssim=%.3f, text_diff=%s",
                 arxiv_id,
-                comp.get('severity', '?'),
+                severity,
                 comp.get('baseline_pages', '?'),
                 comp.get('output_pages', '?'),
-                min(comp.get('ssim_per_page', [1.0]) or [1.0]),
+                min_ssim,
                 comp.get('text_diff_lines', '?'),
             )
+
+            # Append to the persistent rolling results log (results.jsonl).
+            _append_result({
+                'arxiv_id': arxiv_id,
+                'date': datetime.datetime.utcnow().isoformat() + 'Z',
+                'category': paper.get('category', ''),
+                'success': severity == 'OK',
+                'severity': severity,
+                'text_diff_lines': comp.get('text_diff_lines', 0),
+                'min_ssim': round(min_ssim, 4),
+                'failure_mode': comp.get('error_type'),
+            })
 
             # Step 9 — Cleanup
             cleanup_run(paper_dir)
@@ -599,6 +697,9 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
         print(f"  MEDIUM:   {severities.count('MEDIUM')}")
         print(f"  LOW:      {severities.count('LOW')}")
         print(f"  OK:       {severities.count('OK')}")
+        rolling = _rolling_success_rate(window=20)
+        if rolling is not None:
+            print(f"  Rolling success rate (last 20): {rolling:.1f}%")
         if keep_runs:
             print(f"\nResults written to: {run_dir}")
             print("Review comparison.json and visual_diff/ for each paper.")
@@ -631,13 +732,20 @@ def main() -> None:
                             'canonical: use texphage_to_dir — creates a self-contained '
                             'canonical_output/ directory with attachments copied in'
                         ))
+    parser.add_argument('--sampling', choices=['uniform', 'legacy'], default='uniform',
+                        help=(
+                            'uniform (default): sample papers from all ~170 arXiv categories; '
+                            'legacy: use the original five-category list (math.CT/AT, cs.LO) '
+                            'for historical reproducibility'
+                        ))
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 
     run(arxiv_ids=args.ids, seed=args.seed or 0, n=args.n,
-        keep_runs=args.keep_runs, pipeline_mode=args.pipeline)
+        keep_runs=args.keep_runs, pipeline_mode=args.pipeline,
+        sampling=args.sampling)
 
 
 if __name__ == '__main__':

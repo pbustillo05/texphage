@@ -15,35 +15,16 @@ import regex as re
 from filelock import FileLock
 
 from texphage._regex import (
-    embed_braces,
+    _CMD_DEF_KEYWORDS_PATTERN,
+    _COLON_RE,
+    _ENV_DEF_KEYWORDS_PATTERN,
+    _FIND_FILE_RE,
+    _FIND_PKG_LIB_RE,
+    _LETTERS_RE,
+    _TIKZ_PREFIX_RE,
 )
 
 logger = logging.getLogger(__name__)
-
-# MATCHES: individual package/library name tokens inside a comma-separated list
-# CAPTURES: the full match is one package name, e.g. "amsmath" or "defs_pp1"
-# LIMITATIONS:
-#   [observed] CTAN packages do not use underscores, but arXiv bundled .sty
-#              files routinely do (e.g. defs_pp1.sty). Underscore is required.
-find_file = re.compile(r'[a-z0-9\+\-\._]+')
-
-# MATCHES: \usepackage[opts]{pkg1,pkg2}, \RequirePackage[opts]{pkg},
-#          \usetikzlibrary{lib1,lib2}, \usepgflibrary{lib}
-# CAPTURES:
-#   (group 1)  → "usepackage" or "RequirePackage"
-#   options    → optional [...] argument (via embed_braces)
-#   packages   → comma-separated package names
-#   type       → "tikz" or "pgf" (for library calls)
-#   libraries  → comma-separated library names
-# LIMITATIONS:
-#   [observed] Underscore in package names is needed for bundled .sty files
-#              (BUG-21: defs_pp1.sty, my_defs.sty).
-#   [inferred] Does not match \usepackage with @ in name (rare).
-find_pkg_lib = re.compile(
-    r'^[^%%\n]*(?:\\(usepackage|RequirePackage)\s*%s\s*\{(?<packages>(?:[a-z0-9\+\-\._]+| |,)+)\}'
-    r'|\\use(?<type>tikz|pgf)library\s*\{(?<libraries>(?:[a-z0-9\+\-\._]+| |,)+)\})' % embed_braces('options'),
-    flags=re.MULTILINE,
-)
 
 # ---------------------------------------------------------------------------
 # PackageCall — structured representation of one \usepackage call
@@ -90,17 +71,17 @@ def find_explicit_package_calls(preamble: str) -> list[PackageCall]:
         ``\\usetikzlibrary`` line, in the order they appear in *preamble*.
     """
     result: list[PackageCall] = []
-    for match in find_pkg_lib.finditer(preamble):
+    for match in _FIND_PKG_LIB_RE.finditer(preamble):
         opts_raw = match.group('options')          # e.g. '[utf8]' or None
         options  = opts_raw[1:-1] if opts_raw else ''  # strip surrounding []
 
         if match.group('packages'):
-            names = [m.group(0) for m in find_file.finditer(match.group('packages'))]
+            names = [m.group(0) for m in _FIND_FILE_RE.finditer(match.group('packages'))]
             if names:
                 result.append(PackageCall(names=names, options=options))
         elif match.group('libraries'):
             lib_type = match.group('type')         # 'tikz' or 'pgf'
-            names = [m.group(0) for m in find_file.finditer(match.group('libraries'))]
+            names = [m.group(0) for m in _FIND_FILE_RE.finditer(match.group('libraries'))]
             if names:
                 result.append(PackageCall(names=names, options=options,
                                           is_tikzlib=True, lib_type=lib_type))
@@ -159,13 +140,13 @@ def get_path(file: str) -> str:
         return texlive_path[file]
     else:
         logger.debug("get_path: Getting location for %s", file)
-        if re.search(':', file):
-            filename = re.sub(':', '', file) + '.code.tex'
+        if _COLON_RE.search(file):
+            filename = _COLON_RE.sub('', file) + '.code.tex'
         else:
             filename = file + '.sty'
         result = subprocess.run(['kpsewhich', filename], capture_output=True, text=True)
         path = result.stdout.strip()
-        if path == '' and re.match('tikz', filename):
+        if path == '' and _TIKZ_PREFIX_RE.match(filename):
             filename = 'pgf' + filename[4:]
             result = subprocess.run(['kpsewhich', filename], capture_output=True, text=True)
             path = result.stdout.strip()
@@ -192,11 +173,11 @@ def get_dependencies(file: str, dependencies: list | None = None) -> list:
             logger.error("Couldn't decode the package or library %s at %s", file, path)
             return [file]
         else:
-            for match in find_pkg_lib.finditer(code):
-                for package in find_file.finditer(match.group('packages') or ''):
+            for match in _FIND_PKG_LIB_RE.finditer(code):
+                for package in _FIND_FILE_RE.finditer(match.group('packages') or ''):
                     if package[0] not in dependencies:
                         dependencies = get_dependencies(package[0], dependencies)
-                for library in find_file.finditer(match.group('libraries') or ''):
+                for library in _FIND_FILE_RE.finditer(match.group('libraries') or ''):
                     if library[0] not in dependencies:
                         dependencies = get_dependencies(
                             match.group('type') + 'library:' + library[0], dependencies
@@ -209,14 +190,14 @@ def get_dependencies(file: str, dependencies: list | None = None) -> list:
 def find_used_packages(tex: str) -> list:
     """Return all packages (and transitive dependencies) used in a LaTeX string."""
     list_packages = []
-    for match in find_pkg_lib.finditer(tex):
-        for package in find_file.finditer(match.group('packages') or ''):
+    for match in _FIND_PKG_LIB_RE.finditer(tex):
+        for package in _FIND_FILE_RE.finditer(match.group('packages') or ''):
             if package[0] not in list_packages:
                 list_packages += [
                     i for i in get_dependencies(package[0])
                     if i not in list_packages
                 ]
-        for library in find_file.finditer(match.group('libraries') or ''):
+        for library in _FIND_FILE_RE.finditer(match.group('libraries') or ''):
             if library[0] not in list_packages:
                 list_packages += [
                     i for i in get_dependencies(
@@ -240,8 +221,11 @@ def find_command(csname: str, list_packages: list[str]) -> str:
     Returns:
         The name of the package that defines \\csname, or '' if not found.
     """
-    if re.search(r'[a-zA-Z]', csname):
-        pattern_csname = r'(?:\{\s*\\%s\s*\}|\\%s[^a-zA-Z])' % (csname, csname)
+    # Build a csname occurrence pattern that matches the command in definition context.
+    # Two forms: {\csname} (braced) and \csname (with appropriate boundary check).
+    # MATCHES: {\csname}  or  \csname followed by non-alpha (letter names) / \csname (symbols).
+    if _LETTERS_RE.search(csname):
+        pattern_csname = r'(?:\{\s*\\%s\s*\}|\\%s(?![a-zA-Z]))' % (csname, csname)
     elif len(csname) == 1:
         pattern_csname = r'(?:\{\s*\\%s\s*\}|\\%s)' % (csname, csname)
     else:
@@ -249,28 +233,13 @@ def find_command(csname: str, list_packages: list[str]) -> str:
             'Incorrect Latex Command Format: the command must be either composed of letters only '
             '(as in [a-zA-Z]+) or of a single non-letter character (as in [^a-zA-Z])'
         )
-    pattern_env = r'''\\
-        (
-            (re)?newenvironmentx?    |
-            (Declare|New|Renew|Provide)DocumentEnvironment  |
-            NewEnviron    |
-            newenviron
-        )
-        \s* \*? \s*
-        %s
-        ''' % pattern_csname
-    pattern_cmd = r'''\\
-        (
-            (e|x|g)?def    |
-            let     |
-            ((re)?new|provide)commandx?     |
-            (DeclareRobust|Check)Commandx?    |
-            (New|Renew|Provide|Declare)(Expandable)?DocumentCommand
-        )
-        \s* \*? \s*
-        %s
-        ''' % pattern_csname
-    pattern = re.compile(re.sub(r'\s+', '', pattern_env + '|' + pattern_cmd))
+    # Build the final pattern by combining the shared keyword alternations from _regex.py
+    # with the csname occurrence pattern.  Both command-definition and
+    # environment-definition keywords are checked.
+    pattern = re.compile(
+        r'\\(?:' + _CMD_DEF_KEYWORDS_PATTERN + r')\s*\*?\s*(?:' + pattern_csname + r')'
+        r'|\\(?:' + _ENV_DEF_KEYWORDS_PATTERN + r')\s*\*?\s*(?:' + pattern_csname + r')'
+    )
     for package in reversed(list_packages):
         logger.debug('find_command: Searching for \\%s in %s', csname, package)
         try:

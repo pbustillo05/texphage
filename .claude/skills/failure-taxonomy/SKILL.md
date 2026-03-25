@@ -14,14 +14,14 @@ has a completely different fix location and diagnostic path.
 
 ### Mode A — Recognition failure
 
-`find_all` does not match the definition in the preamble → macro is never
+`_FIND_ALL_RE` does not match the definition in the preamble → macro is never
 added to `macro_dict` → it remains unexpanded in the body → compile error
 `undefined control sequence`.
 
 **Signal:** macro appears in `problematic_macros` with reason `pattern_mismatch`,
 OR is completely absent from `demacro_report.json` despite being in the preamble.
 
-**Fix location:** the regex pattern in `find_all` (or a missing branch).
+**Fix location:** the regex pattern `_FIND_ALL_RE` in `_regex.py` (or a missing branch).
 
 ### Mode B — Expansion failure
 
@@ -91,10 +91,11 @@ texdef -t latex -f \\foo
 texdef uses the local TexLive installation. If the local distro is outdated,
 the output may not match current CTAN — cross-check with CTAN if uncertain.
 
-**Step 2 — Pattern probe (Template B): does find_all see the definition?**
+**Step 2 — Pattern probe (Template B): does `_FIND_ALL_RE` see the definition?**
 
 ```python
-from texphage.demacro import find_all, build_dictionary, preprocessing
+from texphage._regex import _FIND_ALL_RE
+from texphage.demacro import build_dictionary, preprocessing
 
 raw_tex = r"""
 \documentclass{article}
@@ -106,8 +107,8 @@ raw_tex = r"""
 
 preamble, body, _ = preprocessing(raw_tex)
 
-print("=== find_all matches in preamble ===")
-for m in find_all.finditer(preamble):
+print("=== _FIND_ALL_RE matches in preamble ===")
+for m in _FIND_ALL_RE.finditer(preamble):
     print(f"  branch={m.lastgroup!r}  text={m.group(0)[:100]!r}")
 
 print("\n=== macro_dict entry for 'foo' ===")
