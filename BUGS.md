@@ -133,7 +133,7 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **reproduction**: `tests/fixtures/bug_29_newenv_closure/main.tex`
 - **first_seen**: 2026-03-26
 - **last_seen**: 2026-03-26
-- **status**: OPEN
+- **status**: IN_PROGRESS
 
 ---
 
