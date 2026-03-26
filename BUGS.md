@@ -106,34 +106,6 @@ status (OPEN / IN_PROGRESS / FIXED).
 
 ---
 
-## BUG-30: `\DeclareNewFootnote` from `manyfoot` stripped — `\footnoteA` undefined
-
-- **severity**: CRITICAL
-- **root_cause_pattern**: package_stripping
-- **failure_mode**: C
-- **seen_in**: [2601.05068] — paper uses `\usepackage{manyfoot}` followed by
-  `\DeclareNewFootnote{A}[arabic]` in the preamble. This defines `\footnoteA`,
-  used extensively in the body. Pipeline output fails:
-  `! Undefined control sequence. l.11 ...\footnoteA{...}`.
-- **description**: `build_minimal_preamble` only preserves `\usepackage`,
-  `\usetikzlibrary`, `\newtheorem`, `\definecolor`, and a few other known declaration
-  types. It strips `\DeclareNewFootnote{A}[arabic]`, which is a package-level
-  declaration from the `manyfoot` package that defines a new footnote series
-  `\footnoteA`, `\FootnoteA`, etc. Without it, all uses of `\footnoteA` in the body
-  produce "Undefined control sequence". The `demacro` pipeline's `find_all` also
-  never sees `\footnoteA` (it does not match any `\newcommand`/`\def` pattern), so
-  it passes through unexpanded — correct behaviour — but the declaration itself must
-  be kept in the preamble for it to be valid. The fix is to add `\DeclareNewFootnote`
-  to the preserved-pattern list in `build_minimal_preamble`.
-- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`;
-  `\DeclareNewFootnote` is not in any preserved-pattern list.
-- **relevant_latex_docs**: https://ctan.org/pkg/manyfoot (manyfoot package,
-  `\DeclareNewFootnote{<series>}[<style>]` syntax)
-- **reproduction**: `tests/fixtures/bug_30_declarenewfootnote/main.tex`
-- **first_seen**: 2026-03-26
-- **last_seen**: 2026-03-26
-- **status**: IN_PROGRESS
-
 ---
 
 ## BUG-31: `\newcounter` stripped when used as shared counter for `\newtheorem[counter]{...}`

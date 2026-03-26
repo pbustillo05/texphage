@@ -863,3 +863,26 @@ status (OPEN / IN_PROGRESS / FIXED).
 
 ---
 
+## BUG-30: `\DeclareNewFootnote` from `manyfoot` stripped — `\footnoteA` undefined
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: package_stripping
+- **failure_mode**: C
+- **seen_in**: [2601.05068]
+- **description**: `build_minimal_preamble` stripped `\DeclareNewFootnote{A}[arabic]`,
+  a package-level declaration from the `manyfoot` package that defines a new footnote
+  series (`\footnoteA`, `\FootnoteA`, etc.). Without it, all uses of `\footnoteA` in
+  the body produce "Undefined control sequence". Fixed by adding
+  `_DECLARE_NEW_FOOTNOTE_RE` to `_regex.py` and preserving matched declarations in
+  `build_minimal_preamble`.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`;
+  `src/texphage/_regex.py` — `_DECLARE_NEW_FOOTNOTE_RE`
+- **relevant_latex_docs**: https://ctan.org/pkg/manyfoot
+- **reproduction**: `tests/fixtures/bug_30_declarenewfootnote/main.tex`
+- **first_seen**: 2026-03-26
+- **last_seen**: 2026-03-26
+- **fixed**: 2026-03-25
+- **status**: FIXED
+
+---
+

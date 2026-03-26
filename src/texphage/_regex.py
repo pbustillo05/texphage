@@ -695,6 +695,24 @@ _DEFINECOLOR_RE = re.compile(
     re.DOTALL,
 )
 
+# _DECLARE_NEW_FOOTNOTE_RE: \DeclareNewFootnote from the manyfoot package.
+# Defines new footnote series (\footnoteX, \FootnoteX, etc.); stripping it
+# causes "Undefined control sequence" for all \footnoteX calls in the body.
+# Docs: https://ctan.org/pkg/manyfoot
+# MATCHES: \DeclareNewFootnote[ctr-type]{suffix}[numbering-style]
+# CAPTURES: no named groups — only the full match is needed for preservation.
+# LIMITATIONS:
+#   [observed] BUG-30: {suffix} and optional [arabic] tested via playground.
+#   [inferred] Optional [ctr-type] before {suffix} (e.g. [para]) not separately tested.
+# USED BY: pipeline.build_minimal_preamble
+_DECLARE_NEW_FOOTNOTE_RE = re.compile(
+    r'\\DeclareNewFootnote'
+    r'\s*(?:\[[^\]]*\])?'   # optional [counter-type] (e.g. [para])
+    r'\s*\{[^}]*\}'         # {suffix} — e.g. {A}
+    r'(?:\s*\[[^\]]*\])?',  # optional [numbering-style] (e.g. [arabic])
+    re.DOTALL,
+)
+
 
 # ============================================================================
 # Section 8 — Attachment-finding patterns   (used by pipeline.find_attachments)

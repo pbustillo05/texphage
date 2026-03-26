@@ -26,6 +26,7 @@ from texphage._regex import (
     _BIB_EXT_RE,
     _BIB_FILE_NAME_RE,
     _BIBLIOGRAPHY_RE,
+    _DECLARE_NEW_FOOTNOTE_RE,
     _DEFINECOLOR_RE,
     _DOCCLASS_RE,
     _FRONT_MATTER_RE,
@@ -58,8 +59,9 @@ def build_minimal_preamble(raw_tex: str) -> str:
     \\date, \\address, \\email, \\keywords, \\subjclass, \\dedicatory, \\thanks),
     \\newtheorem declarations, version/comment environment declarations
     (\\excludeversion, \\includeversion, \\excludecomment, \\includecomment),
-    and xcolor color definitions (\\definecolor, \\colorlet, \\DefineNamedColor,
-    \\providecolor, \\preparecolor)
+    xcolor color definitions (\\definecolor, \\colorlet, \\DefineNamedColor,
+    \\providecolor, \\preparecolor), and manyfoot footnote declarations
+    (\\DeclareNewFootnote)
     that appear in the original preamble.  All custom macro definitions are
     stripped.
 
@@ -103,7 +105,14 @@ def build_minimal_preamble(raw_tex: str) -> str:
     # \definecolor{name}{model}{spec}, \colorlet{name}{color-expr}, etc.
     # define named colors; stripping them causes "Undefined color 'name'".
     color_defs = [m.group(0).strip() for m in _DEFINECOLOR_RE.finditer(raw_preamble)]
-    parts = [docclass] + pkg_lines + newtheorems + version_envs + color_defs + front_matter
+    # BUG-30: manyfoot \DeclareNewFootnote declarations must survive.
+    # \DeclareNewFootnote{A}[arabic] defines \footnoteA; stripping it causes
+    # "Undefined control sequence" for all \footnoteA calls in the body.
+    footnote_decls = [m.group(0).strip() for m in _DECLARE_NEW_FOOTNOTE_RE.finditer(raw_preamble)]
+    parts = (
+        [docclass] + pkg_lines + newtheorems + version_envs
+        + color_defs + footnote_decls + front_matter
+    )
     return '\n'.join(parts)
 
 

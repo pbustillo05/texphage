@@ -6,6 +6,7 @@
 \documentclass{article}
 \usepackage{amsthm}
 \usepackage{xcolor}
+\usepackage{manyfoot}
 
 %% From BUG-24: \definecolor and \colorlet must survive build_minimal_preamble
 \definecolor{darkgreen}{rgb}{0,0.5,0}
@@ -26,6 +27,9 @@
 \newenvironment{mydefn}{\begin{theorem}}{\end{theorem}}
 \newenvironment{myremark}{\begin{theorem}}{\end{theorem}}
 
+%% From BUG-30: \DeclareNewFootnote must survive build_minimal_preamble
+\DeclareNewFootnote{A}[arabic]
+
 \begin{document}
 
 \begin{theorem}
@@ -39,5 +43,7 @@ A definition.
 \begin{myremark}
 A remark.
 \end{myremark}
+
+Text with footnote.\footnoteA{A manyfoot footnote.}
 
 \end{document}
