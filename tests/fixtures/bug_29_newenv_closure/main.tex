@@ -1,0 +1,17 @@
+\documentclass{article}
+\usepackage{amsthm}
+\newtheorem{Obs}{Observation}
+\newtheorem{definition}{Definition}
+\newenvironment{df}{\begin{definition}\rm}{\end{definition}}
+\newenvironment{obs}{\begin{Obs}\rm}{\end{Obs}}
+\begin{document}
+% BUG-29: newenvironment lambda closure bug.
+% \begin{df}...\end{df} should expand to \begin{definition}\rm...\end{definition}
+% but instead expands to \begin{Obs}\rm...\end{Obs} (uses obs's begin/end).
+% Root cause: line 423 of demacro.py:
+%   content = lambda arg : begin(arg) + arg.group('between') + end(arg)
+% Python closure captures 'begin' and 'end' by reference, not by value.
+% After the loop processes 'obs', all earlier lambdas point to obs's begin/end.
+\begin{df}This is a definition.\end{df}
+\begin{obs}This is an observation.\end{obs}
+\end{document}

@@ -1,0 +1,18 @@
+\documentclass{amsart}
+\usepackage{amsthm}
+% BUG-31: \newcounter{other} is stripped by build_minimal_preamble.
+% The subsequent \newtheorem{otherth}[other]{Theorem} uses counter 'other'
+% as a shared counter, which requires the counter to exist first.
+% The pipeline preserves the \newtheorem declarations (wrapped in \@ifundefined)
+% but strips the \newcounter definition, causing "No counter 'other' defined".
+\newtheorem{theor}{Theorem}[section]
+\newcounter{other}
+\renewcommand{\theother}{\Alph{other}}
+\newtheorem{otherth}[other]{Theorem}
+\newtheorem{otherp}[other]{Proposition}
+\begin{document}
+\section{Test}
+\begin{theor}A main theorem.\end{theor}
+\begin{otherth}A theorem from another paper.\end{otherth}
+\begin{otherp}A proposition from another paper.\end{otherp}
+\end{document}

@@ -21,3 +21,4 @@ The testing-agent appends a row here after every run (Step 8.5).
 | 2026-03-23 |    1 | 4             | BUG-20, BUG-21 (new); 2501.00624 PDF-only (skipped); 2501.00319 success (HIGH page delta — layout-only) |
 | 2026-03-24 |    9 | 5             | BUG-22, BUG-23, BUG-24, BUG-25 (new); 2601.02895 HIGH (layout shift from macro expansion) |
 | 2026-03-25 |   42 | 3             | BUG-26, BUG-27, BUG-28 (new); 2601.17597 and 2601.09034 baseline_compile_failed |
+| 2026-03-26 |  100 | 8 (math only) | BUG-29, BUG-30, BUG-31 (new); 2601.15454 and 2601.00463 baseline_compile_failed |

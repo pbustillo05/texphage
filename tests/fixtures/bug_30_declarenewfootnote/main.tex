@@ -1,0 +1,12 @@
+\documentclass{article}
+\usepackage{manyfoot}
+\usepackage{url}
+% BUG-30: \DeclareNewFootnote{A}[arabic] defines \footnoteA.
+% The pipeline strips this declaration from the preamble (it is not a
+% \newcommand, \def, or \newtheorem and is not in build_minimal_preamble's
+% preserved-pattern list). As a result, \footnoteA is undefined in the output.
+\DeclareNewFootnote{A}[arabic]
+\begin{document}
+Main text.\footnoteA{This is a manyfoot footnote.}
+More text.\footnoteA{\url{https://example.com}}
+\end{document}

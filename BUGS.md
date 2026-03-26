@@ -103,3 +103,97 @@ status (OPEN / IN_PROGRESS / FIXED).
 - **first_seen**: 2026-03-25
 - **last_seen**: 2026-03-25
 - **status**: OPEN
+
+---
+
+## BUG-29: `\newenvironment` lambdas share `begin`/`end` via Python closure — all environments expand to the last-defined one
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: incorrect_expansion
+- **failure_mode**: B
+- **seen_in**: [2601.14020] — paper defines eight `\newenvironment` wrappers (`rmk`,
+  `df`, `ex`, `quest`, `property`, `properties`, `subprops`, `para`, `obs`) in the
+  preamble. Every environment in the body expands using the begin/end code of `obs`
+  (the last-defined environment), not its own. For example `\begin{df}...\end{df}`
+  expands to `\begin{Obs}\rm...\end{Obs}` instead of
+  `\begin{definition}\rm...\end{definition}`, causing `! LaTeX Error: Environment
+  Obs undefined`.
+- **description**: In `build_dictionary()`, the `new_env` branch builds a closure at
+  line 423: `content = lambda arg : begin(arg) + arg.group('between') + end(arg)`.
+  Python closures capture variables by reference, not by value. The loop reassigns
+  `begin` and `end` on each iteration. When `expand()` later calls any of the stored
+  lambdas, all of them reference the final values of `begin` and `end` — those from
+  the last `\newenvironment` processed. The fix is to capture by value using default
+  arguments: `content = lambda arg, b=begin, e=end: b(arg) + arg.group('between') + e(arg)`.
+  The same closure bug exists on line 454 for `new_doc_env` (xparse-style environments),
+  which also needs `b=begin, e=end, between=between` default captures.
+- **relevant_code_location**: `src/texphage/demacro.py` — `build_dictionary()`,
+  line 423 (`new_env` branch) and line 454 (`new_doc_env` branch).
+- **relevant_latex_docs**: https://ctan.org/pkg/base (LaTeX2e `\newenvironment`)
+- **reproduction**: `tests/fixtures/bug_29_newenv_closure/main.tex`
+- **first_seen**: 2026-03-26
+- **last_seen**: 2026-03-26
+- **status**: OPEN
+
+---
+
+## BUG-30: `\DeclareNewFootnote` from `manyfoot` stripped — `\footnoteA` undefined
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: package_stripping
+- **failure_mode**: C
+- **seen_in**: [2601.05068] — paper uses `\usepackage{manyfoot}` followed by
+  `\DeclareNewFootnote{A}[arabic]` in the preamble. This defines `\footnoteA`,
+  used extensively in the body. Pipeline output fails:
+  `! Undefined control sequence. l.11 ...\footnoteA{...}`.
+- **description**: `build_minimal_preamble` only preserves `\usepackage`,
+  `\usetikzlibrary`, `\newtheorem`, `\definecolor`, and a few other known declaration
+  types. It strips `\DeclareNewFootnote{A}[arabic]`, which is a package-level
+  declaration from the `manyfoot` package that defines a new footnote series
+  `\footnoteA`, `\FootnoteA`, etc. Without it, all uses of `\footnoteA` in the body
+  produce "Undefined control sequence". The `demacro` pipeline's `find_all` also
+  never sees `\footnoteA` (it does not match any `\newcommand`/`\def` pattern), so
+  it passes through unexpanded — correct behaviour — but the declaration itself must
+  be kept in the preamble for it to be valid. The fix is to add `\DeclareNewFootnote`
+  to the preserved-pattern list in `build_minimal_preamble`.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`;
+  `\DeclareNewFootnote` is not in any preserved-pattern list.
+- **relevant_latex_docs**: https://ctan.org/pkg/manyfoot (manyfoot package,
+  `\DeclareNewFootnote{<series>}[<style>]` syntax)
+- **reproduction**: `tests/fixtures/bug_30_declarenewfootnote/main.tex`
+- **first_seen**: 2026-03-26
+- **last_seen**: 2026-03-26
+- **status**: OPEN
+
+---
+
+## BUG-31: `\newcounter` stripped when used as shared counter for `\newtheorem[counter]{...}`
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: package_stripping
+- **failure_mode**: C
+- **seen_in**: [2601.13672] — paper defines `\newcounter{other}` and
+  `\renewcommand{\theother}{\Alph{other}}` in the preamble, then uses
+  `\newtheorem{otherth}[other]{Theorem}` and `\newtheorem{otherp}[other]{Proposition}`
+  which share that counter. The minimal preamble preserves the `\newtheorem`
+  declarations (wrapped in `\@ifundefined`) but strips `\newcounter{other}` and the
+  `\renewcommand{\theother}{\Alph{other}}`. The output fails:
+  `! LaTeX Error: No counter 'other' defined.` at the first `\newtheorem{otherth}[other]{...}`.
+- **description**: `build_minimal_preamble` captures `\newtheorem` declarations (via
+  `_NEWTHEOREM_RE`) and wraps them in `\@ifundefined` guards. It does not capture
+  `\newcounter` definitions or `\renewcommand{\the<counter>}` renaming. When a paper
+  defines a custom counter (separate from the theorem counter chain) and uses it as
+  the shared counter in `\newtheorem[counter]{...}`, the `\newcounter` declaration
+  must be emitted before the `\newtheorem` in the minimal preamble. The pattern is
+  distinct from BUG-25 (class-defined environments conflicting with `\newtheorem`)
+  because here the counter is defined by the paper itself; no class conflict is
+  involved — just a missing `\newcounter` dependency.
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`,
+  `_NEWTHEOREM_RE` loop; `\newcounter` declarations are not captured.
+- **relevant_latex_docs**: https://texdoc.org/serve/texbytopic/0 (Ch.21 — `\newcounter`);
+  https://www.latex-project.org/help/documentation/usrguide.pdf (`\newtheorem`
+  with `[counter]` argument)
+- **reproduction**: `tests/fixtures/bug_31_newcounter_newtheorem/main.tex`
+- **first_seen**: 2026-03-26
+- **last_seen**: 2026-03-26
+- **status**: OPEN
