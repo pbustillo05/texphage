@@ -833,3 +833,55 @@ def test_newtheorem_guarded_against_class_predefs_BUG_25():
             assert r'\@ifundefined' in line, (
                 f"BUG-25: unguarded \\newtheorem found: {line!r}"
             )
+
+
+def test_build_minimal_preamble_preserves_declarenewfootnote_BUG_30():
+    r"""BUG-30: \DeclareNewFootnote from manyfoot must survive in minimal preamble.
+
+    Playground verified:
+        \usepackage{manyfoot}\DeclareNewFootnote{A}[arabic]
+        + Main text.\footnoteA{A note.}
+        -> "Main text.1\n\n1 A note.\n\n1\n"
+    compile_snippet(preamble=..., body=...).pdf_text contains 'Main text.'
+
+    \DeclareNewFootnote{A}[arabic] defines \footnoteA, \FootnoteA, etc.
+    Without it, \footnoteA is undefined. The declaration must be preserved
+    in build_minimal_preamble output.
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{manyfoot}\n"
+        "\\DeclareNewFootnote{A}[arabic]\n"
+        "\\begin{document}\n"
+        "Main text.\\footnoteA{A note.}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: the declaration must be preserved
+    assert r'\DeclareNewFootnote{A}[arabic]' in minimal, (
+        f"BUG-30: \\DeclareNewFootnote stripped from minimal preamble:\n{minimal}"
+    )
+    # Positive: \usepackage{manyfoot} must also be present
+    assert r'\usepackage{manyfoot}' in minimal
+
+
+def test_build_minimal_preamble_preserves_declarenewfootnote_no_optional_BUG_30():
+    r"""BUG-30: \DeclareNewFootnote without optional [style] arg must also survive."""
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage{manyfoot}\n"
+        "\\DeclareNewFootnote{B}\n"
+        "\\begin{document}\n"
+        "Text.\\footnoteB{Note.}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    assert r'\DeclareNewFootnote{B}' in minimal, (
+        f"BUG-30: \\DeclareNewFootnote{{B}} stripped:\n{minimal}"
+    )
