@@ -217,3 +217,24 @@ def test_csname_expandafter_direct_BUG19():
     expanded, _, problems = demacro(doc(preamble, r'\mytest'))
     assert 'Direct content' in expanded
     assert r'\mytest' not in expanded
+
+
+def test_newenvironment_closure_BUG_29():
+    # Playground verified: two \newenvironment defs + \begin{df}...\end{df} \begin{obs}...\end{obs}
+    # → TeX produces "Definition 1. This is a definition.\nObservation 1. This is an observation."
+    # compile_snippet(preamble=..., body=...).pdf_text contains both "definition" and "Obs"
+    # BUG-29: all environment lambdas share the last-defined begin/end due to closure capture.
+    preamble = (
+        r'\newenvironment{df}{\begin{definition}\rm}{\end{definition}}'
+        r'\newenvironment{obs}{\begin{Obs}\rm}{\end{Obs}}'
+    )
+    body = r'\begin{df}This is a definition.\end{df} \begin{obs}This is an observation.\end{obs}'
+    expanded, _, problems = demacro(doc(preamble, body))
+    # Positive: df must expand to \begin{definition}, not \begin{Obs}
+    assert r'\begin{definition}' in expanded
+    # Positive: obs must expand to \begin{Obs}
+    assert r'\begin{Obs}' in expanded
+    # Negative: df must NOT use obs's begin code
+    assert expanded.count(r'\begin{Obs}') == 1, (
+        "df incorrectly expanded using obs's begin code: %r" % expanded
+    )
