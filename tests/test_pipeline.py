@@ -885,3 +885,54 @@ def test_build_minimal_preamble_preserves_declarenewfootnote_no_optional_BUG_30(
     assert r'\DeclareNewFootnote{B}' in minimal, (
         f"BUG-30: \\DeclareNewFootnote{{B}} stripped:\n{minimal}"
     )
+
+
+def test_build_minimal_preamble_preserves_newcounter_for_newtheorem_BUG_31():
+    r"""BUG-31: \newcounter{other} must survive when \newtheorem uses [other].
+
+    Playground verified:
+        \usepackage{amsthm}\newtheorem{theor}{Theorem}[section]
+        \newcounter{other}\renewcommand{\theother}{\Alph{other}}
+        \newtheorem{otherth}[other]{Theorem}\newtheorem{otherp}[other]{Proposition}
+        + \section{Test}\begin{theor}A main theorem.\end{theor}
+          \begin{otherth}A theorem from another paper.\end{otherth}
+          \begin{otherp}A proposition from another paper.\end{otherp}
+        -> pdf_text contains 'Theorem A.' and 'Proposition B.'
+    compile_snippet(preamble=..., body=...).pdf_text contains 'Theorem A.'
+
+    When \newtheorem{otherth}[other]{Theorem} uses a shared counter 'other',
+    the \newcounter{other} declaration must be preserved in the minimal preamble.
+    Without it, LaTeX errors: "No counter 'other' defined."
+    """
+    from texphage.pipeline import build_minimal_preamble
+
+    raw_tex = (
+        "\\documentclass{amsart}\n"
+        "\\usepackage{amsthm}\n"
+        "\\newtheorem{theor}{Theorem}[section]\n"
+        "\\newcounter{other}\n"
+        "\\renewcommand{\\theother}{\\Alph{other}}\n"
+        "\\newtheorem{otherth}[other]{Theorem}\n"
+        "\\newtheorem{otherp}[other]{Proposition}\n"
+        "\\begin{document}\n"
+        "\\section{Test}\n"
+        "\\begin{theor}A main theorem.\\end{theor}\n"
+        "\\begin{otherth}A theorem from another paper.\\end{otherth}\n"
+        "\\begin{otherp}A proposition from another paper.\\end{otherp}\n"
+        "\\end{document}"
+    )
+    minimal = build_minimal_preamble(raw_tex)
+
+    # Positive: \newcounter{other} must be preserved
+    assert r'\newcounter{other}' in minimal, (
+        f"BUG-31: \\newcounter{{other}} stripped from minimal preamble:\n{minimal}"
+    )
+    # Positive: the \newtheorem declarations referencing [other] must be present
+    assert 'otherth' in minimal
+    assert 'otherp' in minimal
+    # Positive: \renewcommand{\theother} must also be preserved (counter formatting)
+    assert r'\renewcommand{\theother}' in minimal, (
+        f"BUG-31: \\renewcommand{{\\theother}} stripped from minimal preamble:\n{minimal}"
+    )
+    # Negative: no duplicate \newcounter{other}
+    assert minimal.count(r'\newcounter{other}') == 1
