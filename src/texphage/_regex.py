@@ -650,20 +650,56 @@ _FRONT_MATTER_RE = re.compile(
 # Docs: https://texdoc.org/pkg/amsthm
 # MATCHES: \newtheorem{envname}{Print Name}[numbered-within] and variants.
 # CAPTURES:
-#   nt_env   → the environment name, e.g. "remark"
-#   nt_title → the print name (balanced braces)
+#   nt_env     → the environment name, e.g. "remark"
+#   nt_counter → the optional shared counter name from [counter] before title
+#   nt_title   → the print name (balanced braces)
 # LIMITATIONS:
 #   [observed] Does not handle \theoremstyle{} (separate command).
 #   [observed] BUG-20: \newtheoremrm (tac.cls) covered via \w*.
 #   [observed] BUG-22: \newtheoremstyle excluded via negative lookahead.
 #   [observed] BUG-23: print-name may contain nested braces; balanced-brace used.
+#   [observed] BUG-31: shared counter [counter] captured for \newcounter dependency.
 _NEWTHEOREM_RE = re.compile(
     r'\\newtheorem(?!style)\w*\*?'
     r'\s*\{(?P<nt_env>[^}]*)\}'         # {environment-name} — captured for dedup
-    r'\s*(?:\[[^\]]*\])?'               # optional [numbered-within] before title
+    r'\s*(?:\[(?P<nt_counter>[^\]]*)\])?'  # optional [shared-counter] before title (BUG-31)
     # {print-name} — balanced braces for nested \ref{…} etc. (BUG-23)
     r'\s*(?P<nt_title>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?P&nt_title))*(?<!\\)\})'
     r'\s*(?:\[[^\]]*\])?',              # optional [numbered-within] after title
+    re.DOTALL,
+)
+
+# _NEWCOUNTER_RE: \newcounter{name} declarations in the preamble.
+# BUG-31: when \newtheorem uses [counter] syntax, the \newcounter{counter}
+# declaration must survive in the minimal preamble.
+# Docs: https://texdoc.org/serve/texbytopic/0 (Ch.21 — \newcounter)
+# MATCHES: \newcounter{name} with optional [within] arg.
+# CAPTURES:
+#   nc_name → the counter name, e.g. "other"
+# LIMITATIONS:
+#   [observed] Only captures \newcounter; \setcounter, \addtocounter etc. are
+#              not needed for the dependency chain.
+# USED BY: pipeline.py — build_minimal_preamble()
+_NEWCOUNTER_RE = re.compile(
+    r'\\newcounter'
+    r'\s*\{(?P<nc_name>[^}]*)\}'        # {counter-name}
+    r'(?:\s*\[[^\]]*\])?',             # optional [within]
+    re.DOTALL,
+)
+
+# _THE_COUNTER_RE: \renewcommand{\thefoo}{...} counter-formatting declarations.
+# BUG-31: when \newcounter{foo} is preserved, any \renewcommand{\thefoo}{...}
+# that sets the counter's display format must also be preserved.
+# MATCHES: \renewcommand{\thefoo}{balanced-brace body}
+# CAPTURES:
+#   tc_name → the counter name (without "the" prefix), e.g. "other"
+#   tc_body → the replacement body (balanced braces)
+# LIMITATIONS:
+#   [observed] Only matches \renewcommand; \def\thefoo would need a separate branch.
+# USED BY: pipeline.py — build_minimal_preamble()
+_THE_COUNTER_RE = re.compile(
+    r'\\renewcommand\s*\{\\the(?P<tc_name>[a-zA-Z@]+)\}'
+    r'\s*(?P<tc_body>(?<!\\)\{(?:[^\{\}]++|(?<=\\)\{|(?<=\\)\}|(?P&tc_body))*(?<!\\)\})',
     re.DOTALL,
 )
 

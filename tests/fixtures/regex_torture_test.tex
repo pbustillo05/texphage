@@ -30,6 +30,11 @@
 %% From BUG-30: \DeclareNewFootnote must survive build_minimal_preamble
 \DeclareNewFootnote{A}[arabic]
 
+%% From BUG-31: \newcounter + \newtheorem[counter] shared counter dependency
+\newcounter{altctr}
+\renewcommand{\thealtctr}{\Alph{altctr}}
+\newtheorem{altthm}[altctr]{Alt Theorem}
+
 \begin{document}
 
 \begin{theorem}
@@ -45,5 +50,9 @@ A remark.
 \end{myremark}
 
 Text with footnote.\footnoteA{A manyfoot footnote.}
+
+\begin{altthm}
+Shared counter theorem.
+\end{altthm}
 
 \end{document}

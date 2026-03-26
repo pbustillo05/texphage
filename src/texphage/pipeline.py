@@ -31,7 +31,9 @@ from texphage._regex import (
     _DOCCLASS_RE,
     _FRONT_MATTER_RE,
     _INCLUDEGRAPHICS_RE,
+    _NEWCOUNTER_RE,
     _NEWTHEOREM_RE,
+    _THE_COUNTER_RE,
     _VERSION_ENV_RE,
 )
 from texphage.demacro import demacro
@@ -87,6 +89,7 @@ def build_minimal_preamble(raw_tex: str) -> str:
     # Wrapping each \newtheorem in \@ifundefined{envname}{...}{} prevents
     # "Command \foo already defined" when the class already provides it.
     _seen_nt: set[str] = set()
+    _needed_counters: set[str] = set()
     newtheorems: list[str] = []
     for m in _NEWTHEOREM_RE.finditer(raw_preamble):
         env_name = m.group('nt_env')
@@ -97,6 +100,29 @@ def build_minimal_preamble(raw_tex: str) -> str:
             guarded = (r'\makeatletter\@ifundefined{' + env_name
                        + r'}{' + decl + r'}{}\makeatother')
             newtheorems.append(guarded)
+            # BUG-31: if \newtheorem uses [counter] syntax, track the counter
+            # so we can preserve \newcounter{counter} and \renewcommand{\thecounter}.
+            shared_counter = m.group('nt_counter')
+            if shared_counter:
+                _needed_counters.add(shared_counter.strip())
+    # BUG-31: preserve \newcounter and \renewcommand{\the<counter>} for counters
+    # referenced by \newtheorem[counter]{...} declarations.
+    # Deduplicate by counter name to avoid "Command \c@name already defined"
+    # (the regex may match inside comments in the raw preamble).
+    counter_decls: list[str] = []
+    _seen_nc: set[str] = set()
+    if _needed_counters:
+        for m in _NEWCOUNTER_RE.finditer(raw_preamble):
+            name = m.group('nc_name').strip()
+            if name in _needed_counters and name not in _seen_nc:
+                _seen_nc.add(name)
+                counter_decls.append(m.group(0).strip())
+        _seen_tc: set[str] = set()
+        for m in _THE_COUNTER_RE.finditer(raw_preamble):
+            name = m.group('tc_name').strip()
+            if name in _needed_counters and name not in _seen_tc:
+                _seen_tc.add(name)
+                counter_decls.append(m.group(0).strip())
     # BUG-18: version/comment package environment declarations must survive.
     # \excludeversion{name} / \includeversion{name} define environments;
     # stripping them causes "Environment name undefined" in the body.
@@ -110,7 +136,7 @@ def build_minimal_preamble(raw_tex: str) -> str:
     # "Undefined control sequence" for all \footnoteA calls in the body.
     footnote_decls = [m.group(0).strip() for m in _DECLARE_NEW_FOOTNOTE_RE.finditer(raw_preamble)]
     parts = (
-        [docclass] + pkg_lines + newtheorems + version_envs
+        [docclass] + pkg_lines + counter_decls + newtheorems + version_envs
         + color_defs + footnote_decls + front_matter
     )
     return '\n'.join(parts)

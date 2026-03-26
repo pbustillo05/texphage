@@ -886,3 +886,23 @@ status (OPEN / IN_PROGRESS / FIXED).
 
 ---
 
+## BUG-31: `\newcounter` stripped when used as shared counter for `\newtheorem[counter]{...}`
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: package_stripping
+- **failure_mode**: C
+- **seen_in**: [2601.13672]
+- **description**: `build_minimal_preamble` captures `\newtheorem` declarations but not
+  `\newcounter` definitions. When `\newtheorem{otherth}[other]{Theorem}` uses a shared
+  counter `other`, the `\newcounter{other}` and `\renewcommand{\theother}{...}` must be
+  preserved. Without them, LaTeX errors: "No counter 'other' defined."
+- **relevant_code_location**: `src/texphage/pipeline.py` — `build_minimal_preamble()`
+- **relevant_latex_docs**: https://texdoc.org/serve/texbytopic/0 (Ch.21 -- `\newcounter`)
+- **reproduction**: `tests/fixtures/bug_31_newcounter_newtheorem/main.tex`
+- **first_seen**: 2026-03-26
+- **last_seen**: 2026-03-26
+- **fixed**: 2026-03-25
+- **status**: FIXED
+
+---
+
