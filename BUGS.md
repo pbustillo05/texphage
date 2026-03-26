@@ -106,37 +106,6 @@ status (OPEN / IN_PROGRESS / FIXED).
 
 ---
 
-## BUG-29: `\newenvironment` lambdas share `begin`/`end` via Python closure — all environments expand to the last-defined one
-
-- **severity**: CRITICAL
-- **root_cause_pattern**: incorrect_expansion
-- **failure_mode**: B
-- **seen_in**: [2601.14020] — paper defines eight `\newenvironment` wrappers (`rmk`,
-  `df`, `ex`, `quest`, `property`, `properties`, `subprops`, `para`, `obs`) in the
-  preamble. Every environment in the body expands using the begin/end code of `obs`
-  (the last-defined environment), not its own. For example `\begin{df}...\end{df}`
-  expands to `\begin{Obs}\rm...\end{Obs}` instead of
-  `\begin{definition}\rm...\end{definition}`, causing `! LaTeX Error: Environment
-  Obs undefined`.
-- **description**: In `build_dictionary()`, the `new_env` branch builds a closure at
-  line 423: `content = lambda arg : begin(arg) + arg.group('between') + end(arg)`.
-  Python closures capture variables by reference, not by value. The loop reassigns
-  `begin` and `end` on each iteration. When `expand()` later calls any of the stored
-  lambdas, all of them reference the final values of `begin` and `end` — those from
-  the last `\newenvironment` processed. The fix is to capture by value using default
-  arguments: `content = lambda arg, b=begin, e=end: b(arg) + arg.group('between') + e(arg)`.
-  The same closure bug exists on line 454 for `new_doc_env` (xparse-style environments),
-  which also needs `b=begin, e=end, between=between` default captures.
-- **relevant_code_location**: `src/texphage/demacro.py` — `build_dictionary()`,
-  line 423 (`new_env` branch) and line 454 (`new_doc_env` branch).
-- **relevant_latex_docs**: https://ctan.org/pkg/base (LaTeX2e `\newenvironment`)
-- **reproduction**: `tests/fixtures/bug_29_newenv_closure/main.tex`
-- **first_seen**: 2026-03-26
-- **last_seen**: 2026-03-26
-- **status**: IN_PROGRESS
-
----
-
 ## BUG-30: `\DeclareNewFootnote` from `manyfoot` stripped — `\footnoteA` undefined
 
 - **severity**: CRITICAL

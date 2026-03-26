@@ -839,3 +839,27 @@ status (OPEN / IN_PROGRESS / FIXED).
 
 ---
 
+## BUG-29: `\newenvironment` lambdas share `begin`/`end` via Python closure — all environments expand to the last-defined one
+
+- **severity**: CRITICAL
+- **root_cause_pattern**: incorrect_expansion
+- **failure_mode**: B
+- **seen_in**: [2601.14020]
+- **description**: In `build_dictionary()`, the `new_env` branch built a closure
+  `content = lambda arg : begin(arg) + arg.group('between') + end(arg)`. Python
+  closures capture variables by reference, not by value. The loop reassigned
+  `begin` and `end` on each iteration, so all stored lambdas referenced the final
+  values from the last `\newenvironment` processed. Fixed by using default argument
+  binding: `lambda arg, b=begin, e=end: ...`. Same fix applied to the `new_doc_env`
+  (xparse-style) branch which had the identical bug with `between` as well.
+- **relevant_code_location**: `src/texphage/demacro.py` — `build_dictionary()`,
+  `new_env` branch and `new_doc_env` branch.
+- **relevant_latex_docs**: https://ctan.org/pkg/base (LaTeX2e `\newenvironment`)
+- **reproduction**: `tests/fixtures/bug_29_newenv_closure/main.tex`
+- **first_seen**: 2026-03-26
+- **last_seen**: 2026-03-26
+- **fixed**: 2026-03-25
+- **status**: FIXED
+
+---
+

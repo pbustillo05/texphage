@@ -1,56 +1,3 @@
-## WAYS TO CREATE MACROS
-### CLASSICAL WAYS:
-# \def, \(re)newcommand, \let, \(re)newenvironment
-## Variations: \edef, \gdef=\global\def and \xdef=\global\edef
-# and the weird ones: \globaldefs, \futurelet => these looks crazy
-#SHIT: how about \providecommand
-## Prefixes:
-#   -\long can be ignored
-#   -\outer should NEVER be used: it creates macros which can't be used inside other macros.. can be ignored if used, it doesnt change meaning
-#   -\global can be ignored (should be very rare)
-#   -\expandafter is DANGER (absolutely crazy.. avoid it) => ONLY reasonnable use is to create commands with \csname ... \endcsname
-
-###LATEX3
-### XPARSE:
-    # \NewDocumentCommand \RenewDocumentCommand \ProvideDocumentCommand \DeclareDocumentCommand
-    # \NewDocumentEnvironment \RenewDocumentEnvironment \ProvideDocumentEnvironment \DeclareDocumentEnvironment
-    # \NewExpandableDocumentCommand \RenewExpandableDocumentCommand \ProvideExpandableDocumentCommand \DeclareExpandableDocumentCommand
-# \IfNoValue(TF) \IfValue(TF) \IfBoolean(TF)
-## XARGS:
-    # \newcommandx \renewcommandx \newenvironmentx \renewenvironmentx \providecommandx \DeclareRobustCommandx
-    # these above work with a key list instead of default values
-# XTEMPLATE
-
-### KEYS
-#expkv, keyval, xkeyval, ltxkeys, l3keys(2e), pgfkeys, kvsetkeys (used in keycommand), kvdefinekeys, options, simplekv, yax, kvoptions
-
-### SPECIAL PACKAGES:
-    # letltxmacro: \LetLtxMacro: same as \let except it works for macro with optional arguments and for robust macros
-    # etoolbox: \(renew|new|provide)robustcmd(*) + many many weird stuff
-    # twoopt: \(renew|new|provide)commandtwoopt with 2 optional arguments
-# suffix: \withsuffix weird stuff
-    # environ: \NewEnviron
-        #\NewEnviron{⟨name⟩}[⟨N. args⟩][⟨opt. arg.⟩]{⟨macro code⟩}[⟨final code⟩] with \BODY of \environbodyname\.. and \environfinalcode{...}
-    # newenviron: \newenviron (very similar)
-        #\newenviron{⟨name⟩}[⟨N. args⟩][⟨opt. arg.⟩]{start code⟩}{(macro code)} with \envbody or \<envname>body
-# ifthen (obsolete, now superseeded by etoolbox)
-# cmdhook: Allows hooking into existing commands and modifying their behavior.
-     #too crazy: adds after/before code to any command
-
-### FONTS, COUNTERS and DIMS/BOXES:
-# \letcharcode \chardef \charsubdef \charsubdefmax \mathchardef \newfont
-# \countdef \newcounter
-# \dimendef \muskipdef \skipdef \toksdef \newlength \newsavebox
-
-## TO DO:
-# - Find a way to deal with \expandafter especially in \csname ... \endcsname
-# - Add support for the "expandable" commands from xparse
-# - Add support for grouping
-# - Add support for conditional statements (especially for starred environments)
-# - Add support for tikzset
-# - Add support for \makeatletter and \makeatother: could simply add them when expanding.. this works just fine
-# - Add support for \mathpalette: could replace first argument by \currentmathstyle if the mathstyle package is present (this package seems to break xy though)
-
 from __future__ import annotations
 
 import logging
@@ -473,7 +420,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
             pattern += r'(?<between>.*)\\end ?\{ ?%s ?\}' %csname_latex
             begin = content_replacement(macro.group('new_env_begin'), default_dict)
             end = content_replacement(macro.group('new_env_end'), default_dict)
-            content = lambda arg : begin(arg) + arg.group('between') + end(arg)
+            content = lambda arg, b=begin, e=end: b(arg) + arg.group('between') + e(arg)
             macro_dict[csname_group] = [pattern, content]
             find_macro += r'|(?<%s>\\begin ?\{ ?%s ?\})' %(csname_group, csname_latex)
         elif macro.group('new_doc_env'):
@@ -504,7 +451,7 @@ def build_dictionary(tex: str) -> tuple[dict, str]:
             begin = content_replacement(macro.group('new_doc_env_begin'), default_dict)
             end = content_replacement(macro.group('new_doc_env_end'), default_dict)
             between = 'arg%s' %str(arg_num)
-            content = lambda arg : begin(arg) + arg.group(between) + end(arg)
+            content = lambda arg, b=begin, e=end, bw=between: b(arg) + arg.group(bw) + e(arg)
             macro_dict[csname_group] = [pattern, content]
             find_macro += r'|(?<%s>\\begin ?\{ ?%s ?\})' %(csname_group, csname_latex)
         elif macro.group('dmo'):

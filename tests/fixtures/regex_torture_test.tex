@@ -21,10 +21,23 @@
 \newtheorem{lemma}{Lemma}[section]
 \newtheorem*{remark}{Remark}
 
+%% From BUG-29: multiple \newenvironment defs must each keep their own begin/end code
+%% (closure capture bug: all lambdas must bind begin/end by value, not by reference)
+\newenvironment{mydefn}{\begin{theorem}}{\end{theorem}}
+\newenvironment{myremark}{\begin{theorem}}{\end{theorem}}
+
 \begin{document}
 
 \begin{theorem}
 Hello.
 \end{theorem}
+
+\begin{mydefn}
+A definition.
+\end{mydefn}
+
+\begin{myremark}
+A remark.
+\end{myremark}
 
 \end{document}
