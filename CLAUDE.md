@@ -11,10 +11,9 @@ ones), and any new tools described in `docs/user_applications.md`. This includes
 LaTeX debugging: when a construct is unclear, use the full toolkit — the latex
 playground (scripts/latex_playground.py), texdef, regex pattern probes, and
 visual PDF diffs from the arXiv pipeline — to understand ground truth yourself.
-Gemini supplies architectural ideas and research; you turn them into code.
 
 When starting a major new tool or refactor, read `docs/user_applications.md` and
-`.claude/notes/toolbox_refactor_plan.md` first to understand where it fits
+`docs/notes/toolbox_refactor_plan.md` first to understand where it fits
 in the overall architecture.
 
 ## Debugging LaTeX constructs
@@ -47,19 +46,31 @@ to BUGS.md and note exactly what you tried — but this should be rare.
 
 ## Subagents
 
-Invoke these with "Run testing agent", "Fix BUG-N", "Run quarterly audit",
-or "Run regex audit". Claude Code will delegate automatically.
-- `testing-agent`   — downloads arXiv papers, runs pipeline, logs bugs
-- `coding-agent`    — fixes a specific bug in BUGS.md
-- `quarterly-audit` — scans CTAN for unrecognised macro patterns
-- `regex-audit`     — audits all patterns in `_regex.py`: adds missing
-                      MATCHES/CAPTURES/LIMITATIONS/USED BY comments, writes
-                      playground-backed tests, checks naming hygiene
+Invoke these with the trigger phrases below. Claude Code will delegate
+automatically.
+- `arxiv-fidelity`  — downloads arXiv papers, runs pipeline, logs bugs.
+  Trigger: "Run fidelity agent", "Run arXiv fidelity agent",
+  "Run fidelity agent on seed N", "Run fidelity agent on IDs ...",
+  "Run fidelity tests on X papers" (X = subject area, e.g. "math", "physics").
+- `coding-agent`    — fixes a specific bug in BUGS.md.
+  Trigger: "Fix next bug", "Fix BUG-N".
+- `quarterly-audit` — scans CTAN for unrecognised macro patterns.
+  Trigger: "Run quarterly audit".
+- `regex-audit`     — runs the manifest-based regex test suite and
+  playground tests, produces an audit report. Does NOT auto-fix patterns.
+  Trigger: "Run regex audit".
+- `coverage-agent`  — researches LaTeX syntax coverage for a tool, produces
+  test assets (`.tex` snippets + `manifest.json`) and deep-dive notes.
+  Trigger (deep-dive): "Run coverage agent for \<tool\> — deep dive"
+  Trigger (fast-track): "Run coverage agent for \<PATTERN_NAME\>"
+- `triage-agent`    — reads BUGS.md/TODO.md, verifies top candidates with the
+  playground, and promotes confirmed items directly to TODO.md.
+  Trigger: "What should we tackle next?", "Triage open issues", "Review priorities".
 
 ## Always-on rules
 
 - **"Write a note / write a prompt"** → always create or update a file in
-  `.claude/notes/`. Load the `write-note` skill when this is requested.
+  `docs/notes/`. Load the `write-note` skill when this is requested.
 - Write a failing test before touching any code.
 - **All string pattern-finding and pattern-replacement must use `regex`.
   No exceptions.** Never use `str.find()`, `.startswith()`, `.endswith()`,
@@ -77,6 +88,12 @@ or "Run regex audit". Claude Code will delegate automatically.
   - The only exemptions are genuinely non-structural utility operations
     (stripping whitespace from a shell command result, splitting a Python path).
 - Never commit `tests/runs/` content (except `tests/runs/HISTORY.md`), tarballs, or compiled PDFs.
+- **Token efficiency:**
+  - Visual PDF diff (SSIM): only compute when both baseline and pipeline compiled successfully
+    AND page count matches. If page count differs, that IS the confirmed bug — skip SSIM.
+  - Web searches: hard cap of **3 searches per agent session**. Prefer local TexLive
+    (`kpsewhich <pkg>.sty`) and CTAN source files over web pages.
+  - Image reads (PDF page rendering): only for visual diff comparison; never for routine inspection.
 - Run `pytest tests/ -v && ruff check src/ && mypy src/texphage/`
   after every change before committing.
 - After any fix, update `README.md` "Known limitations": remove constructs
@@ -90,9 +107,9 @@ Every bullet in a `LIMITATIONS` block in `demacro.py` or `unfold.py` must carry
 one of two epistemic tags:
 
 - `[observed]` — you verified this empirically (playground, texdef, or direct
-  filesystem test). Gemini may never modify or delete an `[observed]` line.
+  filesystem test). Only Claude agents may write or modify `[observed]` lines.
 - `[inferred]` — derived from documentation or code reading, not empirically
-  tested. Gemini may add or update `[inferred]` lines.
+  tested.
 
 Format example:
 

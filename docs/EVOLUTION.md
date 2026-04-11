@@ -107,7 +107,7 @@ engine and one test infrastructure.
 **New artefacts:**
 - `user_applications.md` — catalogue of all current and planned applications
   with implementation status, from NLP corpus generation to a VSCode LSP.
-- `.claude/notes/toolbox_refactor_plan.md` — the structural changes needed to
+- `docs/notes/toolbox_refactor_plan.md` — the structural changes needed to
   support the wider scope: `converters/` sub-package, per-tool CLI entrypoints,
   composable `texphage()` flags, and updated public API surface.
 - `xy_to_tikz_critique.md` rewritten as a full implementation plan for the

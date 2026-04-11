@@ -121,6 +121,6 @@ docs: update known limitations
 - **`docs/FIXED_BUGS.md`** — read-only archive of resolved bugs. Do not reopen entries here.
 - **`TODO.md`** — planned features, enhancements, and low-priority edge cases. Never mix with BUGS.md.
 - **`docs/EVOLUTION.md`** — project direction log: completed phases, key architectural decisions, and intentional non-decisions. Read before starting any major new effort (use `/orient` skill).
-- **`docs/macros.md`** — implementation reference for macro definition coverage (updated by macro_coverage_agent).
-- **`docs/inclusions.md`** — implementation reference for file inclusion coverage (updated by inclusion_coverage_agent).
+- **`docs/notes/deep-dives/demacro_deep_dive.md`** — coverage research for demacro: what's implemented, gap analysis, out-of-scope decisions (updated by coverage-agent deep-dive).
+- **`docs/notes/deep-dives/unfold_deep_dive.md`** — coverage research for unfold: what's implemented, gap analysis, out-of-scope decisions (updated by coverage-agent deep-dive).
 - **`docs/user_applications.md`** — catalogue of all current and planned toolbox applications with status.

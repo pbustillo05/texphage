@@ -124,7 +124,7 @@ needs to be formatted.
 
 **Design:** `src/texphage/formatter.py`, wrapping `latexindent.pl` as primary
 with a pure-Python regex fallback. Full spec in
-`.claude/notes/pretty_printer_implementation.md`.
+`docs/notes/pretty_printer_implementation.md`.
 
 **No code yet.** Ready to implement.
 
@@ -143,7 +143,7 @@ authors want to modernise.
 integrated). Has known bugs: wrong `import re`, five `match.grouo` typos,
 module-level `print`, silent fallback on unknown operators.
 
-**Full implementation plan:** `.claude/notes/xy_to_tikz_implementation.md`.
+**Full implementation plan:** `docs/notes/xy_to_tikz_implementation.md`.
 
 ---
 

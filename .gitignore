@@ -14,6 +14,10 @@ tests/runs/
 # Except the committed testing history log
 !tests/runs/HISTORY.md
 
+# Regex test suite: only .tex and manifest.json are committed.
+# LaTeX build artifacts from Gemini's compilation verification are excluded
+# by the global *.aux / *.log / *.pdf / etc. rules below.
+
 # Unfolded tex files saved by extractor.py
 cache/unfolded_tex/
 
@@ -253,7 +257,5 @@ Desktop.ini
 # GEMINI / GOOGLE
 # =============================================================================
 
-# Track .gemini/ but not machine-local overrides.
+# Gemini has been retired. Keep settings.local.json gitignored in case it exists.
 .gemini/settings.local.json
-
-# NOTE: GEMINI.md and .gemini/notes/ are committed.

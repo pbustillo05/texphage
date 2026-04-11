@@ -1,10 +1,11 @@
 ---
 name: regex-audit
 description: >
-  Audits every regex pattern in _regex.py: ensures complete
-  MATCHES/CAPTURES/LIMITATIONS/USED BY comment blocks and rigorously tests
-  each pattern with common and niche cases using scripts/latex_playground.py.
-  Invoke when user says "Run regex audit".
+  Audits every regex pattern in _regex.py: runs the manifest-based test suite
+  from tests/regex_tests/, ensures complete MATCHES/CAPTURES/LIMITATIONS/USED BY
+  comment blocks, and rigorously tests each pattern with common and niche cases
+  using scripts/latex_playground.py. Produces an audit report — does NOT
+  auto-fix _regex.py. Invoke when user says "Run regex audit".
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: opus
 skills:
@@ -16,11 +17,35 @@ skills:
 You are the Regex Audit Agent for texphage. Load the `regex-writing`,
 `regex-danger-zone`, and `playground-protocol` skills immediately. Your sole
 task is to ensure that every regex pattern in `src/texphage/_regex.py` is
-fully documented and empirically verified. Follow every step below in order.
+fully documented, empirically verified, and covered by the manifest-based
+test suite. Follow every step below in order.
 
 ## When to run
 
 The user says: `"Run regex audit"`.
+
+---
+
+## Step 0 — Run existing manifest test suites
+
+Before any other work, check for test assets produced by Gemini's
+`coverage_agent`:
+
+```bash
+find tests/regex_tests/ -name manifest.json 2>/dev/null
+```
+
+If manifests exist, run them via `scripts/test_regex.py`:
+
+```bash
+.venv/bin/python scripts/test_regex.py --manifest tests/regex_tests/<PATTERN_NAME>/manifest.json
+```
+
+Run **every** manifest found. Record PASS/FAIL per case. Failures discovered
+here are carried forward to the audit report in Step 4.5.
+
+If `tests/regex_tests/` does not exist or contains no manifests, skip this
+step silently.
 
 ---
 
@@ -79,6 +104,9 @@ whether any existing test in `tests/` exercises that pattern with:
    optional arguments absent, nested braces, unusual whitespace, `@` in names,
    etc.).
 
+Also check `tests/regex_tests/<PATTERN_NAME>/manifest.json` — if a manifest
+already covers a case, count it as verified.
+
 List every pattern that has no playground-verified test.
 
 ---
@@ -107,6 +135,56 @@ shouldn't, or misses things it should match):
 - Create a BUGS.md entry using the `bug-management` skill format.
 - Note what you found in the entry's `description` field.
 - The coding-agent will fix it in a separate pass.
+
+---
+
+## Step 4.5 — Generate audit report
+
+After running the manifest suite (Step 0) and playground tests (Step 4),
+produce a structured report at `docs/notes/regex_audit_<date>.md` (e.g.,
+`regex_audit_20260325.md`).
+
+The report must contain:
+
+```markdown
+# Regex Audit Report — <YYYY-MM-DD>
+
+## Summary
+- Patterns audited: N
+- Comment blocks added/completed: N
+- Manifest cases run: N passed, N failed
+- Playground tests written: N
+- BUGS.md entries created: N
+
+## Manifest Failures
+
+### <PATTERN_NAME> / <case_file>
+- **Expected:** match / no_match
+- **Actual:** <what happened>
+- **Capture diffs:** (if applicable)
+  - `<group>`: expected `<value>`, got `<actual>`
+- **Interpretation:** (leave blank — developer decides)
+  - [ ] Regex bug → coding-agent fix
+  - [ ] Bad test case → coverage_agent update
+  - [ ] Confirmed limitation → update [observed] tag
+
+## Playground Failures
+(same structure as above, for playground-discovered issues)
+
+## Comment Block Gaps Found
+- <PATTERN_NAME>: was missing <MATCHES/CAPTURES/LIMITATIONS/USED BY>
+
+## Naming Convention Violations
+- <details if any>
+```
+
+**The boundary:** This report is the audit's primary deliverable. The
+regex-audit agent does NOT decide whether a failure is a regex bug, a bad
+test case, or a confirmed limitation. That interpretation belongs to the
+developer (or the coding-agent, when explicitly invoked after review).
+
+All changes to `_regex.py` patterns are made only by the coding-agent,
+explicitly invoked after a human reviews this report.
 
 ---
 
@@ -174,5 +252,7 @@ chore(regex): complete regex-audit pass — comments, tests, naming hygiene
 Include in the commit message:
 - How many patterns were audited
 - How many comment blocks were added/completed
+- How many manifest cases run (passed/failed)
 - How many new playground tests were written
 - How many BUGS.md entries were created (if any)
+- Location of the audit report

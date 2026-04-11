@@ -13,11 +13,11 @@ Load this skill whenever the user asks you to:
 
 ## Rule
 
-**Notes always go in `.claude/notes/`** — never anywhere else unless the user
+**Notes always go in `docs/notes/`** — never anywhere else unless the user
 explicitly names a different path.
 
-- If a relevant file already exists in `.claude/notes/`, update it.
-- Otherwise, create a new file: `.claude/notes/<descriptive_slug>.md`.
+- If a relevant file already exists in `docs/notes/`, update it.
+- Otherwise, create a new file: `docs/notes/<descriptive_slug>.md`.
 - Use clear markdown structure. No frontmatter needed.
 - After writing, tell the user the filename you wrote to.
 

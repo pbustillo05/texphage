@@ -1,5 +1,9 @@
 # Agentic Workflow: Deep-Dive Analysis and Improvement Notes
 
+> **2026-04-11:** Gemini has been retired. The dual-agent architecture described below
+> is now a historical record. For the current Claude-only agentic framework, see
+> `docs/agentic-framework.md`.
+
 _Written March 2026. Covers the Claude + Gemini dual-agent system as of the
 `20c495a` commit (docs/workflow: establish Claude–Gemini agentic collaboration
 framework). Also audits what from the deprecated `AGENTS.md` has been

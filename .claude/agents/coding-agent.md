@@ -166,16 +166,16 @@ assert expanded.strip() == result.pdf_text.strip(), \
 ```
 
 If there is still a discrepancy, run `expand()` with `log_level=logging.DEBUG`
-(see testing-agent Step 7.4) to trace the exact substitution chain.
+(see arxiv-fidelity Step 7.4) to trace the exact substitution chain.
 
-### Step 5.75 — Re-run testing agent on the original papers
+### Step 5.75 — Re-run fidelity agent on the original papers
 
-Re-run the testing agent on the arXiv IDs from the bug's `seen_in` list.
+Re-run the arXiv fidelity agent on the arXiv IDs from the bug's `seen_in` list.
 
-**Note:** The original run directories were deleted during cleanup (testing-agent
+**Note:** The original run directories were deleted during cleanup (arxiv-fidelity
 Step 9). The papers must be re-downloaded. Pass the arXiv IDs directly to the
-testing agent's Step 2 download flow: `"Run testing agent on IDs <id1> <id2> …"`.
-The testing agent handles the download transparently when IDs are specified.
+fidelity agent's Step 2 download flow: `"Run fidelity agent on IDs <id1> <id2> …"`.
+The fidelity agent handles the download transparently when IDs are specified.
 
 If end-to-end still fails but unit tests pass: mark bug `PARTIAL`, describe
 what remains, and ask the user for guidance before continuing.
