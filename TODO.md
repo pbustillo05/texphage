@@ -63,40 +63,6 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     3.  Create a new function `download_and_extract_source(arxiv_id, dest_dir)` in the new module. This function will contain the logic for downloading a tarball from `https://arxiv.org/e-print/` and extracting it. This logic should be merged from `scripts/extractor.py:process_arxiv_id` and `scripts/test_fidelity.py:_download_arxiv`. It should handle both `.tar.gz` and gzipped `.tex` files.
     4.  Refactor `scripts/extractor.py` and `scripts/test_fidelity.py` to import and use the new functions from `src/texphage/arxiv_utils.py`.
 
-*   **[ENHANCEMENT] Assert single-line body invariant (Note 1)**
-
-    **Motivation.** The 5-line output format requires that the expanded body contain no
-    `\n` except those inserted at `\par` boundaries (BUG-12 intentionally adds
-    `\par\n` to avoid TeX's 200k-char bufsize limit).  Any other source of newlines —
-    verbatim restore re-introducing bare `\n`, output-assembly code joining lines, or
-    macro expansions that produce literal newlines — violates the format contract
-    silently.  Pablo reported that this invariant is currently broken.
-
-    **Correct invariant (given BUG-12):** In non-verbatim regions of the body, every
-    `\n` must be immediately preceded by `\par`.  Verbatim environments legitimately
-    contain `\n` and are exempt.
-
-    **Plan:**
-    1.  Add a pytest test (`test_body_newlines_only_at_par`) that runs `texphage()` on
-        a multi-paragraph document with no verbatim environments, extracts the body
-        section from `canonical_tex`, and asserts that every `\n` is immediately
-        preceded by `\par`.  Use `regex.findall(r'(?<!\\\\par)\\n', body)` to find
-        violators.
-    2.  Run the test — it should fail if the invariant is broken, confirming the
-        regression.
-    3.  Trace the source of stray `\n`: check verbatim restore (step 5 of
-        preprocessing), macro expansion output, and the BUG-12 replacement line in
-        `pipeline.py`.  The most likely culprits are: (a) `\par` without trailing
-        space (so `\par ` → `\par\n` misses it), or (b) a secondary newline insertion
-        somewhere in the pipeline.
-    4.  Fix the root cause and verify the test passes.
-
-    **Acceptance criterion:** `regex.findall(r'(?<!\\\\par)\\n', body)` returns `[]`
-    for any document with no verbatim environments.
-
-    **Priority:** HIGH — correctness regression; the format contract is explicitly
-    stated in project-context.md.
-
 *   **[RESEARCH] Audit all preamble constructs that must survive `build_minimal_preamble` (Note 2)**
 
     **Motivation.** `build_minimal_preamble` grew its preservation list reactively
@@ -201,7 +167,50 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     **Priority:** LOW — requires playground verification first; the preamble audit
     (Note 2) must discover the full list of affected commands.
 
-*   **[INFRASTRUCTURE] Per-run success rate tracking (Note 5)**
+## Accepted
+*(Items to be prioritized by the user)*
+
+*   **[ENHANCEMENT] Assert single-line body invariant (Note 1)** ← PROMOTED 2026-04-11
+
+    **Playground verification (2026-04-11):** `texphage()` on a two-paragraph document
+    (`\newcommand{\hello}{world}` + two paragraphs) produces:
+    ```
+    '\n First paragraph about world. \\par\nSecond paragraph about world. \n'
+    ```
+    Two stray `\n` found by `regex.findall(r'(?<!\\par)\n', body)` — invariant broken.
+
+    **Motivation.** The 5-line output format requires that the expanded body contain no
+    `\n` except those inserted at `\par` boundaries (BUG-12 intentionally adds
+    `\par\n` to avoid TeX's 200k-char bufsize limit).  Any other source of newlines —
+    verbatim restore re-introducing bare `\n`, output-assembly code joining lines, or
+    macro expansions that produce literal newlines — violates the format contract
+    silently.  Pablo reported that this invariant is currently broken.
+
+    **Correct invariant (given BUG-12):** In non-verbatim regions of the body, every
+    `\n` must be immediately preceded by `\par`.  Verbatim environments legitimately
+    contain `\n` and are exempt.
+
+    **Plan:**
+    1.  Add a pytest test (`test_body_newlines_only_at_par`) that runs `texphage()` on
+        a multi-paragraph document with no verbatim environments, extracts the body
+        section from `canonical_tex`, and asserts that every `\n` is immediately
+        preceded by `\par`.  Use `regex.findall(r'(?<!\\par)\n', body)` to find
+        violators.
+    2.  Run the test — it should fail, confirming the regression.
+    3.  Trace the source of stray `\n`: the observed output shows `\n` at the start
+        of the body (before any text) and `\n` at the end (trailing before
+        `\end{document}`). These likely come from pipeline.py assembly joining lines
+        rather than verbatim restore.
+    4.  Fix the root cause and verify the test passes.
+
+    **Acceptance criterion:** `regex.findall(r'(?<!\\par)\n', body)` returns `[]`
+    for any document with no verbatim environments, where `body` is the content
+    between `\begin{document}` and `\end{document}` in `texphage()` output.
+
+    **Priority:** HIGH — correctness regression; the format contract is explicitly
+    stated in `CLAUDE.md` §Preprocessing contract.
+
+*   **[INFRASTRUCTURE] Per-run success rate tracking (Note 5)** ← PROMOTED 2026-04-11
 
     **Motivation.** There is no quantitative measure of pipeline quality over time.
     The target is ≥90% of tested papers producing near-identical PDF text.  Without
@@ -233,10 +242,6 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     `python scripts/success_rate.py` prints a rolling success rate and trend.
 
     **Priority:** HIGH — needed to measure progress toward the 90% target.
-
-
-## Accepted
-*(Items to be prioritized by the user)*
 
 *   **[ENHANCEMENT] Truly minimal `\usepackage` list in `build_minimal_preamble` — Phase 2 (beta pruning)**
 

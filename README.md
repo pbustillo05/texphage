@@ -1,13 +1,11 @@
 # texphage
 
-A **LaTeX rearrangement toolbox**: tools that restructure LaTeX source with
-no (or minimal, documented) impact on the compiled PDF.
+The LaTeX compiler takes for input a LaTeX project and outputs a pdf. This mapping is highly non-injective and has lots of `endomorphisms` - transformations that modify the LaTeX code without affecting the pdf output. This repository is a **LaTeX rearrangement toolbox**, a collection of such transformations. The target user is both: a human wanting to clean his LaTeX project, and a NLP pipeline needing cleaned self-contained LaTeX snippets.
 
 Current tools:
-
-- **unfold** — resolve `\input`/`\include` chains into a single flat `.tex`
-- **demacro** — expand all preamble-defined macros and produce a minimal
-  preamble, yielding a self-contained 5-line canonical document:
+- **unfold** — resolve a large LaTeX project folder with `\input`/`\include` chains into a single flat `.tex` file
+- **demacro** — expand all preamble-defined user-specific macros and produce a minimal
+  preamble and body, yielding a self-contained 5-line canonical document:
   ```LaTeX
   \documentclass[...]{...}
   % <minimal preamble: mostly \usepackage commands>
@@ -16,7 +14,7 @@ Current tools:
   \end{document}
   ```
 - **format** *(planned)* — reformat canonical output into human-readable LaTeX
-  with one sentence per line and consistent indentation
+  with consistent indentation
 - **xy→tikzcd** *(in progress)* — translate legacy `\xymatrix` diagrams to
   modern tikzcd
 
@@ -82,6 +80,17 @@ canonical_path = texphage_to_dir(
 
 ---
 
+## Documentation
+
+- [Pipeline API](docs/guide/pipeline.md) — main entry point: `texphage()`, `texphage_to_dir()`
+- [demacro](docs/guide/demacro.md) — macro expansion engine: supported forms, preprocessing contract
+- [unfold](docs/guide/unfold.md) — multi-file flattening: supported directives
+- [find_packages](docs/guide/find_packages.md) — package discovery via kpsewhich
+- [User applications](docs/user_applications.md) — full catalogue of current and planned use cases
+- [Contributing](CONTRIBUTING.md) — setup, workflow, commit conventions, bug fix protocol
+
+---
+
 ## Running tests
 
 ```bash
@@ -110,7 +119,7 @@ contains end-to-end regression tests that require `latexmk`.
 ---
 
 For the catalogue of applications and use cases, see `docs/user_applications.md`.
-For AI workflow protocols, see `CLAUDE.md`, `.claude/`, `GEMINI.md` and `.gemini/`.
+For AI workflow protocols, see `CLAUDE.md` and `.claude/`.
 For bugs and future directions, see `BUGS.md` and `TODO.md`.
 
 ---

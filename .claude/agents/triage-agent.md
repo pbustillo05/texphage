@@ -6,7 +6,7 @@ description: >
   Invoke when user says "What should we tackle next?", "Triage open issues",
   or "Review priorities".
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: opus
+model: sonnet
 skills:
   - bug-management
   - failure-taxonomy

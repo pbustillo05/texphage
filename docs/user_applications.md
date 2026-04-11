@@ -196,7 +196,7 @@ All of the above share:
 1. **The same regex engine** (`src/texphage/_regex.py`) — patterns are written
    once and reused across demacro, formatter, converters, and extractors.
 2. **The same preprocessing contract** — whitespace collapse, verbatim
-   protection, `\par` preservation (see `docs/project-context.md`).
+   protection, `\par` preservation (see `CLAUDE.md` §Preprocessing contract).
 3. **The same testing infrastructure** — `scripts/latex_playground.py` as the
    oracle; pytest + ruff + mypy as the gate.
 4. **The same fidelity guarantee** — every transformation must either preserve

@@ -1,7 +1,5 @@
 # texphage — Claude's operating context
 
-@./docs/project-context.md
-
 ## Your role
 
 You are the engineer on this project. You own implementation, testing,
@@ -73,7 +71,11 @@ automatically.
   `docs/notes/`. Load the `write-note` skill when this is requested.
 - Write a failing test before touching any code.
 - **All string pattern-finding and pattern-replacement must use `regex`.
-  No exceptions.** Never use `str.find()`, `.startswith()`, `.endswith()`,
+  No exceptions.** (The third-party `regex` package is non-negotiable: the
+  bracket-matching patterns in `_regex.py` use PCRE recursive named groups
+  `(?&name)` for balanced-brace matching and duplicate named captures across
+  `|` branches — both unsupported by stdlib `re`. Replacing `import regex as re`
+  with `import re` silently breaks every `\{…\}` argument capture.) Never use `str.find()`, `.startswith()`, `.endswith()`,
   `.isalpha()`, `.isdigit()`, `.index()`, character loops, or manual
   brace-counting to detect structure in a LaTeX string.
   - **Writing a new pattern?** Load the `regex-writing` skill first. It
@@ -100,6 +102,28 @@ automatically.
   that are now supported; add newly discovered limitations.
 - After implementing a new tool or reaching a milestone on a planned
   application, update `docs/user_applications.md` to reflect the new status.
+
+## Preprocessing contract
+
+Before macro expansion, `demacro.preprocessing()` transforms raw LaTeX through
+six steps **in this exact order** (order is significant — do not reorder):
+
+1. **Protect verbatim** — extract `\begin{verbatim}…\end{verbatim}` (and
+   variants: `Verbatim`, `lstlisting`, `minted`, `alltt`, `BVerbatim`,
+   `LVerbatim`) and replace with opaque placeholders.
+2. **Strip comments** — remove `%…\n` sequences (`\%` is preserved).
+3. **Preserve paragraph breaks** — replace blank lines with `\par`.
+4. **Collapse whitespace** — collapse all remaining whitespace runs to a single
+   space. **This is the invariant every pattern in `_regex.py` assumes.**
+   Patterns match tokens separated by at most one space; they will silently
+   mis-match if this step is skipped or run out of order.
+5. **Restore verbatim** — replace placeholders back with original content.
+6. **Split** — split on `\begin{document}` / `\end{document}` to separate
+   preamble from body.
+
+Anyone modifying `demacro.py` or writing patterns in `_regex.py` must keep
+this invariant in mind. Breaking the order (e.g. collapsing whitespace before
+protecting verbatim) corrupts verbatim content.
 
 ## Tagging limitation comments in demacro.py and unfold.py
 

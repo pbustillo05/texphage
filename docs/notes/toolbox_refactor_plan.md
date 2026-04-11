@@ -1,104 +1,173 @@
-# Refactor plan: texphage as a modular toolbox
+# texphage as a modular toolbox — refactor plan
 
-## Why refactor
+## Goals
 
-The project's stated goal has shifted from "produce a canonical 5-line NLP
-input" to a **general LaTeX rearrangement toolbox** — a family of tools that
-share the same regex engine, preprocessing contract, and testing
-infrastructure, but can be used independently of each other.
+Three concrete outcomes drive this redesign:
 
-The current codebase was designed around a single pipeline:
-`unfold → demacro → build_minimal_preamble`. This is fine as one tool, but
-several planned applications (pretty-printer, xy→tikzcd converter, future
-structure extractors) are not sub-steps of that pipeline — they are
-independent transformations that happen to reuse the same engine.
-
-This note describes the structural changes needed to support that wider scope
-without breaking what already works.
+- **A. Easy third-party import** — any Python tool can `from texphage import X` and call a single
+  well-typed function. No knowledge of the internal pipeline required.
+- **B. Easy CLI** — a `texphage` command (and per-tool siblings) that humans and LLM agents can
+  call from a shell. Machine-readable JSON output for scripting.
+- **C. Clear documentation** — `docs/guide/` houses one page per tool; `README.md` shows both
+  Python and CLI Quick Starts; `docs/guide/README.md` serves as an index.
 
 ---
 
-## What needs to change
+## Status snapshot
 
-### 1. Public API surface: distinguish tools from pipeline
+| Item | Status |
+|---|---|
+| Public API: `unfold`, `demacro`, `build_minimal_preamble` exported from `__init__.py` | ✅ Done |
+| `CLAUDE.md` updated to toolbox framing | ✅ Done |
+| `docs/guide/` with pages for demacro, unfold, pipeline, find_packages | ✅ Done |
+| `CONTRIBUTING.md` added | ✅ Done |
+| CLI (`src/texphage/cli.py` + `[project.scripts]` in pyproject.toml) | ⬜ Not yet |
+| `converters/` sub-package (`_xy_tikzcd.py`) | ⬜ Not yet (xy converter still in `scripts/`) |
+| `formatter.py` (pretty-printer) | ⬜ Not yet |
+| `pyproject.toml` description updated to toolbox framing | ⬜ Not yet |
+| `format` optional dependency declared | ⬜ Not yet |
+| `docs/guide/README.md` index page | ⬜ Not yet |
 
-**Current:** `pipeline.py` exposes `texphage()` and `texphage_to_dir()`.
-These are monolithic: unfold + demacro + preamble extraction in one call.
+---
 
-**Target:** Each tool should be independently importable:
+## Goal A — Easy third-party import
+
+**Already done.** `src/texphage/__init__.py` exports the full public API:
 
 ```python
-from texphage import unfold          # unfold only
-from texphage import demacro         # demacro only (body + preamble)
-from texphage import format_tex      # pretty-printer
-from texphage.converters import xy_to_tikzcd   # package-dep converter
-from texphage import texphage        # the full pipeline (convenience wrapper)
+from texphage import texphage, texphage_to_dir   # full pipeline
+from texphage import unfold                        # unfold only
+from texphage import demacro, build_minimal_preamble  # demacro only
+from texphage import find_explicit_package_calls, find_used_packages, get_dependencies
+from texphage import PackageCall, Attachment
 ```
 
-The convenience `texphage()` function remains and keeps its current
-signature. It is just a thin orchestrator over the individual tools —
-which it already essentially is.
+Nothing needs to change here. The remaining work is ensuring these symbols stay stable
+and are covered by the type stubs / docstrings.
 
-**Concrete change needed:** expose `unfold()`, `demacro()`, and
-`build_minimal_preamble()` directly from `texphage/__init__.py` as
-first-class public API, not as internal implementation details of
-`pipeline.py`.
+**Future additions** (not yet implemented — add when the modules exist):
+
+```python
+from texphage.converters import xy_to_tikzcd   # once converters/ exists
+from texphage import format_tex                # once formatter.py exists
+```
 
 ---
 
-### 2. Module layout: add `converters/` sub-package
+## Goal B — Easy CLI
 
-**Current:** `src/texphage/` is flat. There is no home for converters.
+**Not yet done.** Create `src/texphage/cli.py` and register console scripts.
 
-**Target:**
+### Entrypoints
+
+```toml
+# pyproject.toml
+[project.scripts]
+texphage         = "texphage.cli:main"          # full pipeline (unfold + demacro)
+texphage-unfold  = "texphage.cli:main_unfold"   # unfold only
+texphage-convert = "texphage.cli:main_convert"  # converters (subcommand: xy)
+# texphage-format = "texphage.cli:main_format"  # add once formatter.py exists
+```
+
+### Interface design
+
+All commands share the same positional argument: a source directory or a single `.tex` file.
+
+```
+texphage <src>            → writes canonical.tex to stdout (or --out path)
+texphage <src> --json     → JSON: {"tex": "...", "attachments": [...]}
+texphage <src> --out DIR  → writes canonical.tex + attachments to DIR
+
+texphage-unfold <src>               → flat .tex to stdout
+texphage-unfold <src> --out FILE    → writes flat .tex
+
+texphage-convert xy <file.tex>      → converted .tex to stdout
+texphage-convert xy <file.tex> --out FILE
+```
+
+### `--json` flag — the LLM-friendly interface
+
+`--json` is the key addition for LLM agent use. It emits a single JSON object on stdout:
+
+```json
+{
+  "tex": "<canonical latex string>",
+  "attachments": [
+    {"tex_ref": "fig1.pdf", "src_path": "figures/fig1.pdf"}
+  ]
+}
+```
+
+This lets an LLM agent call `texphage . --json` and parse the result without
+interpreting stdout/stderr split or file layout conventions.
+
+### Error handling
+
+On failure, all commands write a JSON error to stderr:
+```json
+{"error": "No main .tex file found", "code": 1}
+```
+and exit with a non-zero status. This keeps agent pipelines debuggable.
+
+---
+
+## Goal C — Clear documentation
+
+**Partially done.** `docs/guide/` has four pages. Missing: an index.
+
+### What to add
+
+- `docs/guide/README.md` — index listing all guide pages with one-line descriptions
+- Update `README.md` Quick Start to show CLI usage alongside Python import
+- Update `pyproject.toml` `description` field from the current stale value to:
+  `"A modular toolbox for LaTeX rearrangement: unfold, demacro, convert, format"`
+
+### Existing guide pages (keep as-is)
+
+- `docs/guide/pipeline.md` — full pipeline (texphage / texphage_to_dir)
+- `docs/guide/demacro.md` — macro expansion
+- `docs/guide/unfold.md` — multi-file flattening
+- `docs/guide/find_packages.md` — package discovery
+
+---
+
+## Module layout (target)
 
 ```
 src/texphage/
-  __init__.py          ← re-export all public API
+  __init__.py          ← stable public API (done)
   __version__.py
-  _regex.py            ← compiled patterns (unchanged)
-  unfold.py            ← unchanged
-  demacro.py           ← unchanged
-  pipeline.py          ← orchestrator, thin wrapper
-  formatter.py         ← NEW: pretty-printer
-  find_packages.py     ← unchanged
-  extract_latex.py     ← unchanged
-  converters/
+  _regex.py            ← all compiled patterns (done)
+  unfold.py            ← done
+  demacro.py           ← done
+  pipeline.py          ← done
+  cli.py               ← NEW: console entrypoints
+  formatter.py         ← FUTURE: pretty-printer
+  find_packages.py     ← done
+  extract_latex.py     ← done
+  converters/          ← FUTURE: when xy converter is ready
     __init__.py
-    _xy_tikzcd.py      ← xy→tikzcd pure string functions
-    # future: _eqnarray.py, _psfig.py, …
+    _xy_tikzcd.py      ← move + fix from scripts/xy_to_tikz.py
   data/
-    latexindent_texphage.yaml   ← NEW: bundled config for formatter
+    order_usepackages.json
 ```
 
-This layout makes it clear that `converters/` is a family of optional
-transformations, while `demacro`, `unfold`, and `formatter` are core tools.
-
-**Alternative considered:** keep everything flat and prefix with `_` for
-internal modules. Rejected: converters have a qualitatively different
-contract (lossy / approximate) from the core tools (must be PDF-identical),
-and grouping them makes that boundary visible.
+**Boundary note:** `converters/` only makes sense once there are ≥2 converters. Until then,
+`scripts/xy_to_tikz.py` can stay where it is. Create the sub-package when moving it in.
 
 ---
 
-### 3. `texphage()` signature: composable tool flags
+## `texphage()` signature — composable flags (unchanged from earlier design)
 
-**Current:**
-```python
-def texphage(src_dir, main_tex=None) -> tuple[str, list[Attachment]]
-```
-
-**Target:** add optional, independently controllable tool flags:
+Still the right target. Implement when formatter and xy converter exist:
 
 ```python
 def texphage(
     src_dir: str | Path,
     main_tex: str | None = None,
     *,
-    # core tools (all on by default)
     unfold: bool = True,
     demacro: bool = True,
-    # optional transformations (all off by default)
     convert_xy: bool = False,
     pretty_print: bool = False,
     max_line_length: int | None = None,
@@ -106,114 +175,49 @@ def texphage(
 ) -> tuple[str, list[Attachment]]:
 ```
 
-All flags default to the current behaviour. Adding a flag never breaks
-existing callers.
+**Ordering constraint:** `convert_xy` must run before `demacro.preprocessing()` because
+preprocessing collapses whitespace and destroys `\\` row separators inside `\xymatrix`:
 
-**Ordering constraint (from `xy_to_tikz_implementation.md` §2.3):** `convert_xy`
-must run BEFORE `demacro.preprocessing()` because preprocessing collapses
-whitespace and destroys `\\` row separators inside `\xymatrix`. The internal
-call order is:
 ```
-unfold → convert_xy → preprocessing → demacro → build_minimal_preamble
-                                                      → pretty_print
+unfold → convert_xy → preprocessing → demacro → build_minimal_preamble → pretty_print
 ```
 
 ---
 
-### 4. CLI: one entrypoint per tool
-
-**Current:** No CLI entrypoints (aside from test scripts).
-
-**Target:**
-
-```toml
-[project.scripts]
-texphage          = "texphage.cli:main"         # full pipeline
-texphage-format   = "texphage.cli:main_format"  # pretty-printer only
-texphage-unfold   = "texphage.cli:main_unfold"  # unfold only
-texphage-convert  = "texphage.cli:main_convert" # converters (subcommand: xy)
-```
-
-`texphage-format` and `texphage-unfold` are useful standalone tools for
-humans who do not need the full pipeline. `texphage-convert` is a generic
-entry point for all converters (with subcommands as new converters are added).
-
-All CLI entrypoints should share a common `src/texphage/cli.py` module.
-This module does not exist yet; create it during formatter implementation.
-
----
-
-### 5. Optional dependencies: make tools independently installable
-
-**Current:** `[dev]` and `[agents]` extras. No extras for specific tools.
-
-**Target:**
+## Optional dependencies
 
 ```toml
 [project.optional-dependencies]
-dev    = [...]                        # unchanged
-agents = [...]                        # unchanged
-format = ["ollama>=0.3"]              # for sentence_model LLM pass
-# no extra needed for xy converter — it's pure regex
+dev    = [...]         # unchanged
+agents = [...]         # unchanged
+format = ["ollama>=0.3"]   # future: only needed for sentence_model LLM pass
 ```
 
-The formatter (with LLM sentence detection) is the only tool that adds a
-non-trivial runtime dependency. Everything else runs on the already-required
-`regex` and stdlib.
+The formatter with LLM sentence detection is the only tool that adds a non-trivial runtime
+dependency. Everything else (unfold, demacro, xy converter, CLI) runs on the already-required
+`regex` package and stdlib.
 
 ---
 
-### 6. `CLAUDE.md` and `docs/project-context.md`: update framing
+## Implementation order
 
-`project-context.md` §"Project goal" currently reads:
-
-> texphage takes an arXiv LaTeX tarball and produces a canonical 5-line
-> document … Primary use: feeding NLP pipelines …
-
-This should be updated to describe the toolbox framing (see `docs/user_applications.md`).
-The 5-line pipeline description should move to a §"Core tool: demacro" subsection,
-not serve as the project-level lede.
-
-`CLAUDE.md` §"Your role" needs a corresponding update to mention the formatter
-and converters as in-scope implementation work, alongside the existing pipeline.
+1. **CLI** (`src/texphage/cli.py` + `[project.scripts]`) — unblocks Goal B. Start with `main`
+   and `main_unfold` (they wrap existing functions). Add `--json` output for LLM use.
+2. **Docs landing page** (`docs/guide/README.md`) + README Quick Start CLI section + pyproject
+   description fix — completes Goal C.
+3. **xy converter** — fix known bugs in `scripts/xy_to_tikz.py`, move to
+   `src/texphage/converters/`, wire up `texphage-convert xy`.
+4. **Formatter** — implement `src/texphage/formatter.py`, add `texphage-format` CLI,
+   add `format` optional dependency.
+5. **VSCode LSP server** — separate project depending on `texphage` as a library. Out of scope
+   for this repo.
 
 ---
 
 ## What does NOT need to change
 
 - `_regex.py` layout and naming conventions — already correct, shared by all tools
-- `demacro.py` internals — the preprocessing contract is unchanged
-- `unfold.py` internals — already a clean standalone module
-- Test structure (`tests/test_demacro.py`, etc.) — add parallel test files
-  for new modules, don't reorganise existing ones
-- The `testing-agent` / `coding-agent` / `quarterly-audit` workflow — applies
-  equally to all tools
-
----
-
-## Suggested implementation order
-
-1. **Now (no code change):** Update `project-context.md` framing and `CLAUDE.md`.
-   This costs nothing and aligns all future work. (Tracked: TODO.md)
-2. **With formatter:** Create `src/texphage/cli.py` and `formatter.py`.
-   Add `texphage-format` CLI entrypoint. This is the next concrete tool to
-   implement (see `.claude/notes/pretty_printer_implementation.md`).
-3. **With xy converter:** Create `src/texphage/converters/` sub-package and
-   move/rewrite `scripts/xy_to_tikz.py` into it. Add `texphage-convert xy`
-   CLI. (See `.claude/notes/xy_to_tikz_implementation.md`.)
-4. **After both:** Update `texphage/__init__.py` to expose the new public API
-   surface and update the `texphage()` signature with tool flags.
-5. **Later:** LSP server / VSCode extension — this is the most novel piece and
-   should wait until the core tools are stable.
-
----
-
-## Risks and non-goals
-
-- **Don't break the existing pipeline.** All changes are additive or
-  signature-compatible. Never remove or rename existing public symbols.
-- **Don't over-abstract prematurely.** The `converters/` sub-package only
-  makes sense once there are at least two converters. Until then, a single
-  `_xy_tikzcd.py` file is sufficient.
-- **The LSP server is a separate project.** It would depend on `texphage` as
-  a library but live in its own repo. Don't try to fit it inside this package.
+- `demacro.py` and `unfold.py` internals — clean standalone modules
+- Test structure — add parallel test files for new modules, don't reorganise existing ones
+- Agent workflow (`arxiv-fidelity`, `coding-agent`, `quarterly-audit`) — applies equally to all tools
+- The preprocessing contract (six ordered steps) — unchanged, documented in `CLAUDE.md`

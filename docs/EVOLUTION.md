@@ -34,9 +34,8 @@ preferred-name heuristic; braceless `\input` support; `\DeclareMathOperator`
 recognition; `\def` delimited-param handling.
 
 **Key decisions:**
-- Preprocessing order is sacred (see `project-context.md` §The preprocessing
-  contract). Never change step order; always protect verbatim before collapsing
-  whitespace.
+- Preprocessing order is sacred (see `CLAUDE.md` §Preprocessing contract).
+  Never change step order; always protect verbatim before collapsing whitespace.
 - `_strip_par_in_groups()` uses regex-driven tokenizer, not character loops.
   Brace depth + environment depth both tracked (BUG-16 added env depth).
 - BUG-12 fix (`\par ` → `\par\n`) applied in `texphage()` post-expansion,
