@@ -1,0 +1,10 @@
+\documentclass{article}
+\usepackage{pgf}
+\begin{document}
+\pgfkeys{
+  /my styles/.cd,
+  style a/.style = {font=\Large},
+  style b/.style = {font=\small},
+}
+\pgfkeys{/my styles/style a} Large text.
+\end{document}

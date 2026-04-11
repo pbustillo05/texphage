@@ -210,6 +210,9 @@ Temporary Items
 
 # NOTE: CLAUDE.md, AGENTS.md, .claude/agents/, and .claude/skills/ are committed.
 
+# Worktrees created by coding-agent / arxiv-fidelity (machine-local)
+.claude/worktrees/
+
 # =============================================================================
 # JETBRAINS (PyCharm, etc.)
 # =============================================================================

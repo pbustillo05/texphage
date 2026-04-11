@@ -1,0 +1,7 @@
+\documentclass{article}
+\usepackage{tikz}
+\begin{document}
+	ikzset{mystyle/.style args={#1 and #2}{label=#1, fill=#2}}
+\begin{tikzpicture}
+ode[mystyle=left and yellow] {Hi}; \end{tikzpicture}
+\end{document}

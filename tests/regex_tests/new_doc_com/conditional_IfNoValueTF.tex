@@ -1,0 +1,6 @@
+\documentclass{article}
+\usepackage{xparse}
+\begin{document}
+\NewDocumentCommand{\mycmd}{o}{\IfNoValueTF{#1}{No Value}{Got #1}}
+\mycmd \quad \mycmd[Value]
+\end{document}

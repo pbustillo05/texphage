@@ -1,0 +1,6 @@
+\documentclass{article}
+\begin{document}
+\def\makename#1{my#1command}
+\expandafter\def\csname\makename{test}\endcsname{Success}
+\mytestcommand
+\end{document}

@@ -1,0 +1,6 @@
+\documentclass{article}
+\usepackage{xparse}
+\begin{document}
+\NewDocumentCommand{\mycmd}{s}{\IfBooleanTF{#1}{Starred}{Unstarred}}
+\mycmd \quad \mycmd*
+\end{document}

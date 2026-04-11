@@ -1,0 +1,6 @@
+\documentclass{article}
+\usepackage{xparse}
+\begin{document}
+\NewDocumentCommand{\interval}{R(){-1,1}}{Interval from #1}
+\interval() \quad \interval(0,1)
+\end{document}

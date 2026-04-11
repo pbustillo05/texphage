@@ -1,0 +1,25 @@
+{
+  "pattern": "unfold._FIND_INPUT",
+  "description": "Matches all file inclusion directives supported by the unfold tool. Pattern is local to unfold.py.",
+  "target": "raw",
+  "cases": [
+    {
+      "file": "includefrom.tex",
+      "description": "Unsupported \includefrom command from 'import' package. Should not match.",
+      "compilation": "skip",
+      "expect": "no_match"
+    },
+    {
+      "file": "subincludefrom.tex",
+      "description": "Unsupported \subincludefrom command from 'import' package. Should not match.",
+      "compilation": "skip",
+      "expect": "no_match"
+    },
+    {
+      "file": "loadglsentries.tex",
+      "description": "Unsupported \loadglsentries command from 'glossaries' package. Should not match.",
+      "compilation": "skip",
+      "expect": "no_match"
+    }
+  ]
+}

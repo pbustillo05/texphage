@@ -1,0 +1,26 @@
+{
+  "pattern": "csname_def",
+  "description": "Matches \expandafter\def\csname name\endcsname{...} idiom.",
+  "target": "preprocessed_preamble",
+  "cases": [
+    {
+      "file": "expandafter_let.tex",
+      "description": "Unsupported \expandafter\let with csname. Pattern only matches \def.",
+      "compilation": "required",
+      "expect": "no_match"
+    },
+    {
+      "file": "nested_csname.tex",
+      "description": "Unsupported dynamic csname. The name part contains a macro, not just literal characters.",
+      "compilation": "required",
+      "expect": "no_match"
+    },
+    {
+      "file": "expandafter_newenvironment.tex",
+      "description": "Unsupported \expandafter
+ewenvironment with csname. Pattern only matches \def.",
+      "compilation": "required",
+      "expect": "no_match"
+    }
+  ]
+}

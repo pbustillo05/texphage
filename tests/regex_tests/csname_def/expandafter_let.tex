@@ -1,0 +1,8 @@
+\documentclass{article}
+\begin{document}
+\makeatletter
+\let\old@section\section
+\expandafter\let\csname texphage@replacement\endcsname\old@section
+\makeatother
+	exphage@replacement{Hello}
+\end{document}

@@ -3,7 +3,7 @@ name: failure-taxonomy
 description: >
   The three failure modes (A/B/C) for texphage bugs, with pattern probe
   code and diagnostic paths. Load before any bug triage, before writing
-  any test, and before any coding-agent or testing-agent run.
+  any test, and before any coding-agent or arxiv-fidelity run.
 ---
 
 ## Failure Mode Taxonomy

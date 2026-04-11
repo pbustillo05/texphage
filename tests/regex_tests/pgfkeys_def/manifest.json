@@ -1,0 +1,52 @@
+{
+  "pattern": "pgfkeys_def",
+  "description": "Matches key-value definitions inside 	ikzset and \pgfkeys. This is a hypothetical pattern that does not yet exist.",
+  "target": "preprocessed_preamble",
+  "cases": [
+    {
+      "file": "tikzset_basic_style.tex",
+      "description": "A basic .style definition in 	ikzset.",
+      "compilation": "required",
+      "expect": "match",
+      "captures": {
+        "key": "my style",
+        "handler": ".style",
+        "value": "{draw=blue, thick}"
+      }
+    },
+    {
+      "file": "tikzset_style_with_args.tex",
+      "description": "A .style args definition in 	ikzset.",
+      "compilation": "required",
+      "expect": "match",
+      "captures": {
+        "key": "mystyle",
+        "handler": ".style args",
+        "args": "{#1 and #2}",
+        "value": "{label=#1, fill=#2}"
+      }
+    },
+    {
+      "file": "pgfkeys_handler.tex",
+      "description": "A .code handler definition using \pgfkeys.",
+      "compilation": "required",
+      "expect": "match",
+      "captures": {
+        "key": "/handlers/.myhandler",
+        "handler": ".code",
+        "value": "{You said #1}"
+      }
+    },
+    {
+      "file": "pgfkeys_style_multiple.tex",
+      "description": "First style in a multi-key \pgfkeys block.",
+      "compilation": "required",
+      "expect": "match",
+      "captures": {
+        "key": "/my styles/style a",
+        "handler": ".style",
+        "value": "{font=\Large}"
+      }
+    }
+  ]
+}

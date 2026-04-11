@@ -1,0 +1,6 @@
+\documentclass{article}
+\usepackage{pgf}
+\begin{document}
+\pgfkeys{/handlers/.myhandler/.code={You said #1}}
+\pgfkeys{/my key/.myhandler=World}
+\end{document}

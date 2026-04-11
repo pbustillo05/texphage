@@ -1,7 +1,7 @@
 ---
 name: locking-protocol
 description: >
-  Shared locking protocol for testing-agent and coding-agent.
+  Shared locking protocol for arxiv-fidelity and coding-agent.
   Prevents two parallel agent runs from corrupting the same test directories.
   Load when starting any agent session that uses tests/runs/.
 ---

@@ -8,7 +8,7 @@ description: >
 
 ## Who may create BUGS.md entries
 
-Only Claude's agents (testing-agent, quarterly-audit) may create new BUGS.md
+Only Claude's agents (arxiv-fidelity, quarterly-audit) may create new BUGS.md
 entries. A bug requires empirical observation — running code and compiling TeX.
 Gemini reads BUGS.md and may add a `**latex_analysis**:` field to existing
 entries to document TeX semantics, but cannot create new entries.
@@ -17,7 +17,7 @@ entries to document TeX semantics, but cannot create new entries.
 
 ## `demacro_report.json` schema
 
-The testing-agent writes this file alongside each pipeline run. The coding-agent
+The arxiv-fidelity agent writes this file alongside each pipeline run. The coding-agent
 reads it when diagnosing bugs. Fields for each entry in `problematic_macros`:
 
 | Field | Type | Description |

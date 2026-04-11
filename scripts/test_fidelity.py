@@ -129,14 +129,43 @@ def _load_all_categories() -> list[str]:
     return _LEGACY_CATEGORIES
 
 
-def _sample_categories(n: int, strategy: str, rng: random.Random) -> list[str]:
+def _filter_categories(pool: list[str], prefixes: list[str]) -> list[str]:
+    """Return the subset of *pool* whose category starts with any of *prefixes*.
+
+    A prefix matches if the category string starts with ``prefix + '.'`` or
+    equals the prefix exactly (for single-segment categories like ``'gr-qc'``
+    or ``'quant-ph'``).  Comparison is case-insensitive.
+
+    Examples::
+
+        _filter_categories(pool, ['math'])      # math.AG, math.NT, …
+        _filter_categories(pool, ['cs', 'math']) # cs.* and math.*
+        _filter_categories(pool, ['hep'])        # hep-th, hep-ph, hep-lat, hep-ex
+    """
+    normed = [p.lower() for p in prefixes]
+    result = []
+    for cat in pool:
+        cat_lower = cat.lower()
+        for p in normed:
+            if cat_lower == p or cat_lower.startswith(p + '.') or cat_lower.startswith(p + '-'):
+                result.append(cat)
+                break
+    return result
+
+
+def _sample_categories(n: int, strategy: str, rng: random.Random,
+                       category_filter: list[str] | None = None) -> list[str]:
     """Return n category strings according to *strategy*.
 
     Args:
-        n:        Number of category slots to fill.
-        strategy: ``'uniform'`` — draw uniformly from all ~170 arXiv categories;
-                  ``'legacy'`` — repeat the original five-category list.
-        rng:      Seeded RNG instance for reproducibility.
+        n:               Number of category slots to fill.
+        strategy:        ``'uniform'`` — draw uniformly from the category pool;
+                         ``'legacy'`` — repeat the original five-category list.
+        rng:             Seeded RNG instance for reproducibility.
+        category_filter: Optional list of prefix strings (e.g. ``['math']``,
+                         ``['cs', 'math']``).  When given, only categories
+                         matching at least one prefix are included in the pool.
+                         Ignored when *strategy* is ``'legacy'``.
 
     Returns:
         List of n category strings (may contain duplicates if n > pool size).
@@ -146,29 +175,42 @@ def _sample_categories(n: int, strategy: str, rng: random.Random) -> list[str]:
         rng.shuffle(cats)
         return cats
 
-    # Uniform: sample without replacement as far as possible, then wrap.
     pool = _load_all_categories()
+    if category_filter:
+        filtered = _filter_categories(pool, category_filter)
+        if filtered:
+            pool = filtered
+        else:
+            logger.warning(
+                "Category filter %r matched no known categories — using full pool.",
+                category_filter,
+            )
+
+    # Uniform sampling without replacement as far as possible, then wrap.
     rng.shuffle(pool)
     cats = (pool * ((n // len(pool)) + 1))[:n]
     rng.shuffle(cats)
     return cats
 
 
-def _sample_papers(n: int, seed: int, sampling: str = 'uniform') -> list[dict]:
+def _sample_papers(n: int, seed: int, sampling: str = 'uniform',
+                   category_filter: list[str] | None = None) -> list[dict]:
     """Return n paper metadata dicts, downloading from arXiv.
 
     Args:
-        n:        Number of papers to sample.
-        seed:     Random seed for reproducibility.
-        sampling: Category sampling strategy — ``'uniform'`` (default) draws
-                  from all ~170 arXiv categories; ``'legacy'`` uses the
-                  original five-category list.
+        n:               Number of papers to sample.
+        seed:            Random seed for reproducibility.
+        sampling:        Category sampling strategy — ``'uniform'`` (default)
+                         draws from all ~170 arXiv categories; ``'legacy'``
+                         uses the original five-category list.
+        category_filter: Optional list of prefix strings passed to
+                         :func:`_sample_categories` (e.g. ``['math']``).
     """
     sys.path.insert(0, str(REPO_ROOT / 'scripts'))
     from extractor import get_all_arxiv_ids  # type: ignore[import]
 
     rng = random.Random(seed)
-    cats = _sample_categories(n, sampling, rng)
+    cats = _sample_categories(n, sampling, rng, category_filter=category_filter)
 
     papers = []
     used: set[str] = set()
@@ -176,8 +218,12 @@ def _sample_papers(n: int, seed: int, sampling: str = 'uniform') -> list[dict]:
     for cat in cats:
         ids = get_all_arxiv_ids(50, cat, year)
         if not ids:
-            # Sparse category — try any other category from the pool.
+            # Sparse category — try any other category from the (filtered) pool.
             fallback_pool = _load_all_categories()
+            if category_filter:
+                filtered = _filter_categories(fallback_pool, category_filter)
+                if filtered:
+                    fallback_pool = filtered
             rng.shuffle(fallback_pool)
             for fb_cat in fallback_pool:
                 ids = get_all_arxiv_ids(50, fb_cat, year)
@@ -550,15 +596,20 @@ def _rolling_success_rate(window: int = 20) -> float | None:
 
 def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
         keep_runs: bool = False, pipeline_mode: str = 'raw',
-        sampling: str = 'uniform') -> dict:
+        sampling: str = 'uniform',
+        category_filter: list[str] | None = None) -> dict:
     """Run the full testing agent. Returns the manifest dict.
 
     Args:
-        pipeline_mode: ``'raw'`` (default) or ``'canonical'``.  See
-                       :func:`_run_pipeline` for details.
-        sampling:      Category sampling strategy — ``'uniform'`` (default)
-                       draws from all ~170 arXiv categories; ``'legacy'``
-                       uses the original five-category list.
+        pipeline_mode:   ``'raw'`` (default) or ``'canonical'``.  See
+                         :func:`_run_pipeline` for details.
+        sampling:        Category sampling strategy — ``'uniform'`` (default)
+                         draws from all ~170 arXiv categories; ``'legacy'``
+                         uses the original five-category list.
+        category_filter: Optional list of category prefixes (e.g. ``['math']``,
+                         ``['cs', 'math']``).  Restricts sampling to matching
+                         categories.  Ignored when *arxiv_ids* is given or
+                         *sampling* is ``'legacy'``.
     """
     _acquire_lock()
     try:
@@ -570,13 +621,15 @@ def run(arxiv_ids: list[str] | None = None, seed: int = 0, n: int = 5,
         if arxiv_ids:
             papers = [{'arxiv_id': aid, 'category': 'user-provided'} for aid in arxiv_ids]
         else:
-            papers = _sample_papers(n, seed, sampling=sampling)
+            papers = _sample_papers(n, seed, sampling=sampling,
+                                    category_filter=category_filter)
 
         manifest: dict = {
             'run_id': run_id,
             'seed': seed,
             'pipeline_mode': pipeline_mode,
             'sampling': sampling,
+            'category_filter': category_filter or [],
             'papers': [],
         }
 
@@ -738,6 +791,14 @@ def main() -> None:
                             'legacy: use the original five-category list (math.CT/AT, cs.LO) '
                             'for historical reproducibility'
                         ))
+    parser.add_argument('--categories', nargs='+', metavar='PREFIX',
+                        help=(
+                            'Restrict sampling to categories matching one or more prefixes. '
+                            'E.g. --categories math  samples only math.* categories; '
+                            '--categories cs math  samples from cs.* and math.*; '
+                            '--categories hep  samples hep-th, hep-ph, hep-lat, hep-ex. '
+                            'Ignored when --ids is given or --sampling legacy is used.'
+                        ))
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -745,7 +806,7 @@ def main() -> None:
 
     run(arxiv_ids=args.ids, seed=args.seed or 0, n=args.n,
         keep_runs=args.keep_runs, pipeline_mode=args.pipeline,
-        sampling=args.sampling)
+        sampling=args.sampling, category_filter=args.categories)
 
 
 if __name__ == '__main__':

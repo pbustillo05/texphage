@@ -1,0 +1,47 @@
+{
+  "pattern": "new_doc_com",
+  "description": "Matches \NewDocumentCommand and its variants from the xparse package.",
+  "target": "preprocessed_preamble",
+  "cases": [
+    {
+      "file": "arg_spec_r.tex",
+      "description": "Unsupported 'r' (required delimited) argument specifier. The regex should fail to parse the args token.",
+      "compilation": "required",
+      "expect": "no_match"
+    },
+    {
+      "file": "arg_spec_R.tex",
+      "description": "Unsupported 'R' (optional delimited) argument specifier. The regex should fail to parse the args token.",
+      "compilation": "required",
+      "expect": "no_match"
+    },
+    {
+      "file": "arg_spec_v.tex",
+      "description": "Unsupported 'v' (verbatim) argument specifier. The regex should fail to parse the args token.",
+      "compilation": "required",
+      "expect": "no_match"
+    },
+    {
+      "file": "conditional_IfNoValueTF.tex",
+      "description": "A correct definition with an 'o' arg whose body uses a conditional. The regex should capture the definition correctly.",
+      "compilation": "required",
+      "expect": "match",
+      "captures": {
+        "new_doc_com_csname": "{\mycmd}",
+        "new_doc_com_args": "{o}",
+        "new_doc_com_content": "{\IfNoValueTF{#1}{No Value}{Got #1}}"
+      }
+    },
+    {
+      "file": "conditional_IfBooleanTF.tex",
+      "description": "A correct definition with an 's' arg whose body uses a conditional. The regex should capture the definition correctly.",
+      "compilation": "required",
+      "expect": "match",
+      "captures": {
+        "new_doc_com_csname": "{\mycmd}",
+        "new_doc_com_args": "{s}",
+        "new_doc_com_content": "{\IfBooleanTF{#1}{Starred}{Unstarred}}"
+      }
+    }
+  ]
+}
