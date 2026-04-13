@@ -8,11 +8,24 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 - **In Progress:** The agent moves an item here before starting work.
 - **Done:** Completed tasks.
 
+## Priority scale (0–5)
+
+| Score | Meaning |
+|---|---|
+| **5** | Fix immediately — CRITICAL correctness regression or compile failure (use BUGS.md instead) |
+| **4** | High impact; tackle this sprint — breaks a format contract or blocks measurement |
+| **3** | Medium impact; tackle after 4-items — removes architectural debt or enables key workflows |
+| **2** | Nice to have — improves quality but not blocking anything |
+| **1** | Speculative or very long-term — significant investment for uncertain payoff |
+| **0** | Parking lot only |
+
+> **Bugs (BUGS.md) for reference:** BUG-27 `\let\relax` stripped — **5/5**; BUG-26 `\tikzset` stripped — **5/5**; BUG-28 `\theoremstyle` stripped — **4/5**.
+
 ---
 
 ## Proposed
 
-*   **[INFRASTRUCTURE] RAG pipeline for LaTeX package sources**
+*   **[INFRASTRUCTURE] RAG pipeline for LaTeX package sources** `priority: 1/5`
 
     **Motivation:** When the testing-agent or coding-agent encounters an
     `undefined_control_sequence \foo` from an unrecognised package, the current
@@ -32,10 +45,10 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     known packages, the agent successfully retrieves the correct definition in
     at least 8/10 cases without any manual lookup step.
 
-    **Priority:** MEDIUM — significant engineering investment; highest value when
+    **Priority: 1/5** — significant engineering investment; highest value when
     the quarterly audit starts finding many Mode A patterns.
 
-*   **[INFRASTRUCTURE] Coverage dashboard**
+*   **[INFRASTRUCTURE] Coverage dashboard** `priority: 2/5`
 
     **Motivation:** Track pipeline improvement over time. After each quarterly
     audit, we should be able to see whether coverage has improved.
@@ -50,10 +63,10 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     and `scripts/coverage_report.py` prints a table showing per-package coverage
     percentages for the top 50 arXiv math packages.
 
-    **Priority:** LOW — useful for motivation and prioritisation but not urgent
+    **Priority: 2/5** — useful for motivation and prioritisation but not urgent
     while the bug list is long.
 
-*   **[REFACTOR] Create a shared `arxiv_utils` module**
+*   **[REFACTOR] Create a shared `arxiv_utils` module** `priority: 3/5`
 
     **Motivation:** Logic for downloading and processing arXiv sources is duplicated between `scripts/extractor.py` and `scripts/test_fidelity.py`. This makes maintenance harder and creates an unhealthy dependency where a test script imports from another script.
 
@@ -63,7 +76,7 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     3.  Create a new function `download_and_extract_source(arxiv_id, dest_dir)` in the new module. This function will contain the logic for downloading a tarball from `https://arxiv.org/e-print/` and extracting it. This logic should be merged from `scripts/extractor.py:process_arxiv_id` and `scripts/test_fidelity.py:_download_arxiv`. It should handle both `.tar.gz` and gzipped `.tex` files.
     4.  Refactor `scripts/extractor.py` and `scripts/test_fidelity.py` to import and use the new functions from `src/texphage/arxiv_utils.py`.
 
-*   **[RESEARCH] Audit all preamble constructs that must survive `build_minimal_preamble` (Note 2)**
+*   **[RESEARCH] Audit all preamble constructs that must survive `build_minimal_preamble` (Note 2)** `priority: 3/5`
 
     **Motivation.** `build_minimal_preamble` grew its preservation list reactively
     (one BUGS entry at a time: `\newtheorem`, `\title`, `\definecolor`, etc.).  There
@@ -98,10 +111,10 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     -   Corresponding additions to `build_minimal_preamble` for all KEEP rows not
         yet implemented, each with a regression test.
 
-    **Priority:** MEDIUM — systematic, not urgent, but will catch many arXiv failures
+    **Priority: 3/5** — systematic, not urgent, but will catch many arXiv failures
     that are currently silent.
 
-*   **[INFRASTRUCTURE] Uniform arXiv category sampling in `test_fidelity.py` (Note 3)**
+*   **[INFRASTRUCTURE] Uniform arXiv category sampling in `test_fidelity.py` (Note 3)** `priority: 3/5`
 
     **Motivation.** `_DEFAULT_CATEGORIES = ['math.CT', 'math.CT', 'math.AT', 'math.AT', 'cs.LO']`
     samples almost exclusively from category-theoretic mathematics and logic.  arXiv
@@ -124,9 +137,9 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     **Acceptance criterion:** A run with `--sampling uniform -n 20` produces at most 2
     papers from any single category; the manifest shows the sampled distribution.
 
-    **Priority:** MEDIUM — needed for meaningful success-rate measurement (Note 5).
+    **Priority: 3/5** — needed for meaningful success-rate measurement (Note 5).
 
-*   **[ENHANCEMENT] Normalize `\geometry`/`\hypersetup` into `\usepackage` options (Note 4)**
+*   **[ENHANCEMENT] Normalize `\geometry`/`\hypersetup` into `\usepackage` options (Note 4)** `priority: 2/5`
 
     **Motivation.** Several LaTeX packages support both load-time options
     (`\usepackage[margin=1in]{geometry}`) and a post-load configuration command
@@ -164,53 +177,118 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     keeping `\hypersetup` as-is rather than normalizing it if the playground
     confirms this risk.
 
-    **Priority:** LOW — requires playground verification first; the preamble audit
+    **Priority: 2/5** — requires playground verification first; the preamble audit
     (Note 2) must discover the full list of affected commands.
+
+*   **[INFRASTRUCTURE] CI enforcement (pytest / ruff / mypy / import guards)** `priority: 3/5`
+
+    **Motivation.** CLAUDE.md declares that `import re` (stdlib) is banned under `src/`,
+    `sys.path.insert` is banned under `src/` and `tests/`, and the full gate
+    (`pytest && ruff check && mypy`) must pass before every commit. None of this is
+    machine-enforced. The repo itself currently violates the `import re` rule in
+    `src/texphage/unfold.py` and several scripts. Rules only documented in prose drift.
+
+    **Plan:**
+    1.  Add `.github/workflows/ci.yml` running `pytest tests/ -v`, `ruff check src/`,
+        and `mypy src/texphage/` on every push and pull request.
+    2.  Add a `ruff` rule (or a small `scripts/check_imports.py`) that fails if
+        `import re` or `from re import` appears anywhere under `src/`.
+    3.  Add a similar check that fails if `sys.path.insert` or `sys.path.append` appears
+        under `src/` or `tests/`.
+    4.  Fix the existing violations in `src/texphage/unfold.py` to unblock CI.
+
+    **Acceptance criterion:** A PR that adds `import re` to any file under `src/` causes
+    CI to fail with a clear error message.
+
+    **Priority: 3/5** — turns documented rules into enforced invariants; stops rule drift.
+
+*   **[BUGFIX] xy_to_tikz Phase 0: mechanical correctness fixes** `priority: 3/5`
+
+    **Motivation.** `scripts/xy_to_tikz.py` has at least four mechanical bugs that make
+    it unreliable as an experimental tool: it uses stdlib `re` (violating CLAUDE.md
+    invariant), has `print()` calls at module import time, and contains `match.grouo`
+    typos (runtime `AttributeError` on any match that hits those branches). These are
+    easy, low-risk fixes.
+
+    **Plan:**
+    1.  Replace `import re` with `import regex as re` throughout `scripts/xy_to_tikz.py`.
+    2.  Remove or guard all `print()` calls that execute at import time.
+    3.  Fix all `match.grouo` → `match.group` typos (search for `grouo`).
+    4.  Run the existing test suite (if any) or add a smoke test that imports the module
+        without side effects.
+
+    **Acceptance criterion:** `python -c "import scripts.xy_to_tikz"` produces no output
+    and no error; `ruff check scripts/xy_to_tikz.py` passes.
+
+    **Priority: 3/5** — 4 mechanical fixes; low risk; makes the script minimally correct
+    and good entry-point work.
+
+*   **[REFACTOR] Declarative preservation layer for `build_minimal_preamble`** `priority: 2/5`
+
+    **Motivation.** `build_minimal_preamble()` is growing as a reactive exception ledger —
+    one bug-number comment per rule (front matter, theorems, counters, colors, tikzset,
+    let-resets, etc.). As the list grows, it becomes harder to audit and easier to miss
+    interactions. The systematic preamble audit (Note 2) will make this worse if the
+    output is just more ad-hoc rules bolted in.
+
+    **Plan:**
+    1.  Define a small `PreservationHandler` protocol:
+        `def match(self, line: str, context: PreambleContext) -> bool`
+        `def emit(self, line: str, context: PreambleContext) -> list[str]`
+    2.  Create a registry `PRESERVATION_HANDLERS: list[PreservationHandler]` with one
+        handler per category (UsepackageHandler, NewtheoremHandler, TheoremstyleHandler,
+        TikzsetHandler, LetRelaxHandler, etc.).
+    3.  Replace the current monolithic loop with a dispatch over the registry.
+    4.  Tests target handler categories, not only specific bugs.
+
+    **Acceptance criterion:** All existing regression tests pass; adding a new preamble
+    construct requires adding one handler class, not editing a monolithic function.
+
+    **Priority: 2/5** — important long-term architecture, but all current bugs are fixable
+    in the existing structure. Do after the bug queue clears.
+
+*   **[INFRASTRUCTURE] Stable / Experimental / Planned tool tiers** `priority: 2/5`
+
+    **Motivation.** The toolbox narrative (README, `docs/user_applications.md`) treats
+    `xy_to_tikz` and the core pipeline as peers. They are not: one is a tested, packaged
+    library; the other is an experimental script with known correctness issues. This blur
+    makes the repo harder to trust for new users and harder to document accurately.
+
+    **Plan:**
+    1.  Define three tiers in `docs/user_applications.md` and `README.md`:
+        - **Stable** — packaged modules in `src/texphage/`, covered by the full quality gate.
+        - **Experimental** — scripts that are useful but not part of the supported API.
+        - **Planned** — notes and specs only, no runnable code yet.
+    2.  Tag each tool in `docs/user_applications.md` with its tier.
+    3.  Add a one-sentence disclaimer to `README.md` for experimental tools.
+
+    **Acceptance criterion:** `README.md` clearly marks which tools are stable vs
+    experimental; `docs/user_applications.md` tier column is filled in for all tools.
+
+    **Priority: 2/5** — documentation/organizational; reduces false expectations.
+
+*   **[RESEARCH] Benchmark demacro against other LaTeX normalization tools (Note 6)** `priority: 1/5`
+
+    **Motivation.** Pablo notes (Note 6): we should compare our success rate to similar
+    tools. This would (a) calibrate our 90% target, (b) identify techniques used
+    elsewhere that we could adopt, and (c) serve as external validation for the project.
+
+    **Plan:**
+    1.  Survey extensively existing LaTeX macro-expansion or other latex normalization tools (e.g. `https://github.com/JamesMcGreivy/expand-latex-macros`, `https://github.com/hl-ren/Latex-newcommand-expander`, `https://github.com/xpandlatex/xpandlatex`, `https://github.com/neolaf2/latex-expander`, `https://ctan.org/pkg/de-macro`, Pandoc's LaTeX reader,...)
+    2.  Define a shared benchmark: a python script randomly downloading a set of 50 arXiv papers, extracts snippets of various sizes (each time keep the whole preamble but take a subset of the body), success measured with the following metrics: compiles (Y/N), criticality of errors in log files (to be made precise), and similarity score (SSIM).
+    3.  Run each tool on the benchmark set and record an initial success rate comparison.
+    4.  Write up results in `docs/notes/benchmark_comparison.md`.
+
+    **Acceptance criterion:** `docs/notes/benchmark_comparison.md` exists with a table
+    comparing at least 3 tools on the shared benchmark set.
+
+    **Priority: 1/5** — research/future value; do after the success-rate tracking
+    infrastructure (Note 5) exists to make our own measurement credible.
 
 ## Accepted
 *(Items to be prioritized by the user)*
 
-*   **[ENHANCEMENT] Assert single-line body invariant (Note 1)** ← PROMOTED 2026-04-11
-
-    **Playground verification (2026-04-11):** `texphage()` on a two-paragraph document
-    (`\newcommand{\hello}{world}` + two paragraphs) produces:
-    ```
-    '\n First paragraph about world. \\par\nSecond paragraph about world. \n'
-    ```
-    Two stray `\n` found by `regex.findall(r'(?<!\\par)\n', body)` — invariant broken.
-
-    **Motivation.** The 5-line output format requires that the expanded body contain no
-    `\n` except those inserted at `\par` boundaries (BUG-12 intentionally adds
-    `\par\n` to avoid TeX's 200k-char bufsize limit).  Any other source of newlines —
-    verbatim restore re-introducing bare `\n`, output-assembly code joining lines, or
-    macro expansions that produce literal newlines — violates the format contract
-    silently.  Pablo reported that this invariant is currently broken.
-
-    **Correct invariant (given BUG-12):** In non-verbatim regions of the body, every
-    `\n` must be immediately preceded by `\par`.  Verbatim environments legitimately
-    contain `\n` and are exempt.
-
-    **Plan:**
-    1.  Add a pytest test (`test_body_newlines_only_at_par`) that runs `texphage()` on
-        a multi-paragraph document with no verbatim environments, extracts the body
-        section from `canonical_tex`, and asserts that every `\n` is immediately
-        preceded by `\par`.  Use `regex.findall(r'(?<!\\par)\n', body)` to find
-        violators.
-    2.  Run the test — it should fail, confirming the regression.
-    3.  Trace the source of stray `\n`: the observed output shows `\n` at the start
-        of the body (before any text) and `\n` at the end (trailing before
-        `\end{document}`). These likely come from pipeline.py assembly joining lines
-        rather than verbatim restore.
-    4.  Fix the root cause and verify the test passes.
-
-    **Acceptance criterion:** `regex.findall(r'(?<!\\par)\n', body)` returns `[]`
-    for any document with no verbatim environments, where `body` is the content
-    between `\begin{document}` and `\end{document}` in `texphage()` output.
-
-    **Priority:** HIGH — correctness regression; the format contract is explicitly
-    stated in `CLAUDE.md` §Preprocessing contract.
-
-*   **[INFRASTRUCTURE] Per-run success rate tracking (Note 5)** ← PROMOTED 2026-04-11
+*   **[INFRASTRUCTURE] Per-run success rate tracking (Note 5)** `priority: 4/5` ← PROMOTED 2026-04-11
 
     **Motivation.** There is no quantitative measure of pipeline quality over time.
     The target is ≥90% of tested papers producing near-identical PDF text.  Without
@@ -241,9 +319,9 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     **Acceptance criterion:** After two testing-agent runs,
     `python scripts/success_rate.py` prints a rolling success rate and trend.
 
-    **Priority:** HIGH — needed to measure progress toward the 90% target.
+    **Priority: 4/5** — needed to measure progress toward the 90% target.
 
-*   **[ENHANCEMENT] Truly minimal `\usepackage` list in `build_minimal_preamble` — Phase 2 (beta pruning)**
+*   **[ENHANCEMENT] Truly minimal `\usepackage` list in `build_minimal_preamble` — Phase 2 (beta pruning)** `priority: 3/5`
 
     Phase 1 (unify parsing with `find_packages.py`, preserve options+order) is **Done** — see Done section.
 
@@ -347,9 +425,9 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
     -   Package option conflicts are a LaTeX-level error inherited from the original
         preamble; our pruning does not introduce new conflicts.
 
-*   **[ENHANCEMENT] `pgfkeys` Support:** Add parsing support for `\pgfkeys` and `\tikzset`, which are used extensively in TikZ and other packages for key-value options. This is a major undertaking.
-*   **[ENHANCEMENT] Conditional Support:** Add basic support for TeX conditionals like `\if...`, `\ifx...`, especially for handling starred versions of commands/environments where the logic is often `\newif\if@star ... \@ifstar{\@startrue...}{\@starfalse...}`.
-*   **[REFACTOR] `demacro.py` cleanup:** The `build_dictionary` function is becoming very large. Investigate splitting the logic for each definition type (e.g., `_handle_new_com`, `_handle_def`) into separate helper functions.
+*   **[ENHANCEMENT] `pgfkeys` Support** `priority: 2/5` — Add parsing support for `\pgfkeys` and `\tikzset`, which are used extensively in TikZ and other packages for key-value options. This is a major undertaking.
+*   **[ENHANCEMENT] Conditional Support** `priority: 2/5` — Add basic support for TeX conditionals like `\if...`, `\ifx...`, especially for handling starred versions of commands/environments where the logic is often `\newif\if@star ... \@ifstar{\@startrue...}{\@starfalse...}`.
+*   **[REFACTOR] `demacro.py` cleanup** `priority: 2/5` — The `build_dictionary` function is becoming very large. Investigate splitting the logic for each definition type (e.g., `_handle_new_com`, `_handle_def`) into separate helper functions.
 
 ## In Progress
 
@@ -357,8 +435,10 @@ This file tracks planned features, enhancements, and low-priority bugs that are 
 
 See `docs/EVOLUTION.md` for the full history of completed phases and key decisions.
 
+*   [ENHANCEMENT] Assert single-line body invariant (Note 1) — **Phase 6** in EVOLUTION.md
 *   [REFACTOR] Centralize all regex in `_regex.py` + naming conventions — **Phase 3** in EVOLUTION.md
 *   [REFACTOR] Replace all non-regex string pattern-finding with regex — **Phase 3**
 *   [REFACTOR] Consolidate regex helper functions (`new_csname`, `com_name`, etc.) — **Phase 3**
 *   [REFACTOR] `find_command` pattern reuse via `_CMD_DEF_KEYWORDS_PATTERN` — **Phase 3**
 *   [ENHANCEMENT] `build_minimal_preamble` Phase 1 — unified parsing via `PackageCall` — **Phase 3**
+*   [PACKAGING] CLI entrypoint and package metadata (`texphage`, `texphage-unfold`, `--json`) — **Phase 5** in EVOLUTION.md

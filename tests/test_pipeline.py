@@ -729,13 +729,16 @@ def test_body_newlines_only_at_par():
     (pipeline.py: expanded_body.replace(r'\par ', r'\par' + '\n')).
 
     Any other source of \n — verbatim restore re-introducing bare newlines,
-    macro expansions that produce literal newlines, or secondary newline
-    insertions — violates the 5-line format contract.
+    macro expansions that produce literal newlines, or assembly code injecting
+    structural newlines — violates the 5-line format contract.
 
     This test uses a document with no verbatim environments so that the
     invariant applies absolutely: every \n must immediately follow \par.
+
+    Acceptance criterion: regex.findall(r'(?<!\\par)\n', body) returns []
+    where body is the content between \begin{document} and \end{document}.
     """
-    import re
+    import regex
     import tempfile
     import os
 
@@ -760,14 +763,11 @@ def test_body_newlines_only_at_par():
 
     body_start = canonical_tex.find(r'\begin{document}') + len(r'\begin{document}')
     body_end   = canonical_tex.find(r'\end{document}')
-    # Strip the single structural \n that the format assembly adds immediately
-    # after \begin{document} and before \end{document} — those are intentional
-    # frame characters, not content newlines.
-    body = canonical_tex[body_start:body_end].strip('\n')
+    body = canonical_tex[body_start:body_end]
 
-    # Every remaining \n must be immediately preceded by \par.
+    # Every \n in the body must be immediately preceded by \par.
     # Pattern: a newline NOT preceded by the literal string \par.
-    stray = re.findall(r'(?<!\\par)\n', body)
+    stray = regex.findall(r'(?<!\\par)\n', body)
     assert not stray, (
         f"Body contains {len(stray)} stray newline(s) not at \\par boundaries.\n"
         f"Body excerpt around first stray \\n: "

@@ -252,11 +252,15 @@ def texphage(
     # is 200k chars/line; large papers overflow it. Restore newlines at \par
     # boundaries — macro expansion is already complete so this is safe.
     expanded_body = expanded_body.replace(r'\par ', r'\par' + '\n')
+    # Body invariant: the content between \begin{document} and \end{document}
+    # must contain \n only at \par boundaries (no structural newlines injected
+    # by assembly). Omit the \n that would otherwise appear immediately after
+    # \begin{document} and immediately before \end{document}.
     canonical_tex = (
         minimal_preamble
-        + '\n\\begin{document}\n'
+        + '\n\\begin{document}'
         + expanded_body
-        + '\n\\end{document}\n'
+        + '\\end{document}\n'
     )
     attachments = find_attachments(canonical_tex, src_dir)
     return canonical_tex, attachments

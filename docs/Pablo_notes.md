@@ -12,3 +12,5 @@ These are TODOs to be added, and important directions we should take.
 4. Commands such as `\geometry{...}` and `\hypersetup{...}` often appear in preamble and are essentially just package options that aren't fed in the usual way as `\usepackage[<usual options>]{...}`. We should standardize this by putting the options back as optional arguments of `\usepackage`. This logic is to be verified before implementing (I'm not 100% sure).
 
 5. We should keep track of our success rate. As we do arxiv tests, we should write how many papers (say in the last 20 we tested) returned a perfectly identical output (extremely short distance: something that wouldn't be true if one command failed to be demacro'ed). The target should be 90%+ success rate. So far we seem quite low.
+
+6. We should create a benchmark to compare the success rate of demacro to other similar tools.

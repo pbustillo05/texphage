@@ -78,6 +78,28 @@ canonical_path = texphage_to_dir(
 # Paths inside canonical.tex are rewritten to point into unalienable/.
 ```
 
+### CLI quick start
+
+```bash
+# Full pipeline: canonical .tex to stdout
+texphage path/to/paper.tex
+
+# Full pipeline: write to a file
+texphage path/to/paper.tex --out canonical.tex
+
+# Full pipeline: write canonical.tex + attachments to a directory
+texphage path/to/arxiv/source/ --out output/
+
+# Machine-readable JSON (useful for LLM agent pipelines)
+texphage path/to/paper.tex --json
+
+# Unfold only (no macro expansion)
+texphage-unfold path/to/arxiv/source/
+
+texphage --help          # show all options
+texphage-unfold --help
+```
+
 ---
 
 ## Documentation

@@ -127,6 +127,67 @@ engine and one test infrastructure.
 
 ---
 
+## Phase 5: CLI and Packaging (2026-04-13)
+
+**Built:** `src/texphage/cli.py` with two console entrypoints:
+
+- `texphage <src> [--out PATH|DIR] [--json] [--main FILE]` — full pipeline
+  (unfold + demacro → canonical .tex). `--json` emits `{"tex": ..., "attachments": [...]}` for LLM agent pipelines.
+- `texphage-unfold <src> [--out FILE] [--main FILE]` — unfold only.
+
+Both registered under `[project.scripts]` in `pyproject.toml`. `pyproject.toml`
+description and keywords updated to toolbox framing. CLI Quick Start section
+added to `README.md`.
+
+**Key decisions:**
+- `texphage-convert` deferred until the xy converter is promoted to a packaged
+  module; the plan requires ≥2 converters before creating the `converters/`
+  sub-package.
+- On any exception, all commands write `{"error": "...", "code": N}` to stderr
+  and exit non-zero, keeping agent pipelines debuggable.
+- `--json` + `--out DIR` emits `{"canonical_path": "..."}` (not the full tex
+  string) because the files are already written to disk.
+
+**Completed TODO items:**
+- [PACKAGING] CLI entrypoint and package metadata
+
+---
+
+## Phase 6: Body Newline Invariant Enforcement (2026-04-13)
+
+**Built:** Enforced the format contract that the content between
+`\begin{document}` and `\end{document}` in `canonical_tex` contains `\n` only
+at `\par` boundaries — no structural newlines injected by the assembly code.
+
+**Root cause:** `pipeline.py` was assembling canonical_tex as
+`'\n\\begin{document}\n' + expanded_body + '\n\\end{document}\n'`, injecting a
+stray `\n` immediately after `\begin{document}` and another immediately before
+`\end{document}`. These two `\n`s appear inside the body region and violate the
+invariant that every body `\n` must be preceded by `\par`.
+
+**Fix:** Changed the assembly delimiters to `'\n\\begin{document}' +
+expanded_body + '\\end{document}\n'` — no injected `\n` inside the body region.
+The expanded body already starts and ends with a space (from whitespace
+collapsing), which is legal at those positions in LaTeX.
+
+**Test fix:** The pre-existing `test_body_newlines_only_at_par` was masking the
+bug with `.strip('\n')` before the assertion and used stdlib `import re` instead
+of the required `import regex`. Both issues corrected: strip removed, import
+fixed.
+
+**Key decisions:**
+- The invariant is enforced at the `texphage()` output level, not inside
+  `demacro()`. Preprocessing (whitespace collapse) produces a naturally
+  newline-free body; only the BUG-12 `\par\n` fix re-introduces `\n`, and those
+  are always at `\par` boundaries.
+- No stripping of `expanded_body` content — the fix is purely in the assembly
+  delimiters, keeping the invariant exact with zero special-casing.
+
+**Completed TODO items:**
+- [ENHANCEMENT] Assert single-line body invariant (Note 1)
+
+---
+
 ## Intentional Non-Decisions (things we chose NOT to do)
 
 - **Full TeX interpreter:** Out of scope. We use regex + heuristics, not a

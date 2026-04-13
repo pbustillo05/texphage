@@ -5,7 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "texphage"
 version = "0.1.0"
-description = "Unfold multi-file LaTeX projects and expand user-defined macros"
+description = "A modular toolbox for LaTeX rearrangement: unfold, demacro, convert, format"
+keywords = ["latex", "tex", "nlp", "macro", "unfold", "demacro", "toolbox"]
 requires-python = ">=3.10"
 dependencies = [
     "regex>=2022.1.18",
@@ -27,6 +28,10 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.8",
 ]
+
+[project.scripts]
+texphage        = "texphage.cli:main"
+texphage-unfold = "texphage.cli:main_unfold"
 
 [tool.setuptools.packages.find]
 where = ["src"]
