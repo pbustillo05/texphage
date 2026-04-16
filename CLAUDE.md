@@ -102,6 +102,7 @@ automatically.
   that are now supported; add newly discovered limitations.
 - After implementing a new tool or reaching a milestone on a planned
   application, update `docs/user_applications.md` to reflect the new status.
+- Always use the local **venv** for Python code and pip installations. If you need some global packages (such as a homebrew install), stop and ask the user to do it themself.
 
 ## Preprocessing contract
 

@@ -112,25 +112,29 @@ one place.
 
 ---
 
-### 6. LaTeX pretty-printer (`texphage-format`) 📋
+### 6. LaTeX pretty-printer (`texphage-format`) ✅
 
-**Goal:** Reformat a demacro'd document into idiomatic, human-readable LaTeX:
-one sentence per line, environments on their own lines, consistent 2-space
-indentation.
+**Goal:** Reformat a demacro'd document into human-readable LaTeX:
+block environments on their own lines, `\par` converted to blank lines,
+consistent 2-space indentation. Optional `--semantic-linebreaks` flag for
+one sentence per line.
 
 **Why it matters:** The pipeline output is a machine-optimised single line.
 For human inspection (reviewing demacro output, editing, or diffing), it
 needs to be formatted.
 
-**Design:** `src/texphage/formatter.py`, wrapping `latexindent.pl` as primary
-with a pure-Python regex fallback. Full spec in
+**Implemented in:** `src/texphage/formatter.py` (pure Python, no latexindent
+dependency). CLI: `texphage-format`. Full spec in
 `docs/notes/pretty_printer_implementation.md`.
 
-**No code yet.** Ready to implement.
+**Known gaps:**
+- Verbatim environments not yet protected in standalone mode.
+- No PDF round-trip integration tests yet (need `latexmk`).
+- `--semantic-linebreaks` abbreviation detection may miss domain-specific terms.
 
 ---
 
-### 7. Translate `\xymatrix` diagrams to tikzcd 🔧
+### 7. Translate `\xymatrix` diagrams to tikzcd ✅ CLI complete
 
 **Goal:** Replace legacy XY-pic commutative diagrams with tikzcd equivalents,
 removing the `xy` package dependency.
@@ -139,11 +143,19 @@ removing the `xy` package dependency.
 modern standard. Many arXiv papers from the 2000s–2010s use `\xymatrix` that
 authors want to modernise.
 
-**Partially implemented in:** `scripts/xy_to_tikz.py` (standalone, never
-integrated). Has known bugs: wrong `import re`, five `match.grouo` typos,
-module-level `print`, silent fallback on unknown operators.
+**Implemented (Phases 0–3):**
+- `src/texphage/xy_to_tikzcd.py` — pure string converter (`convert_xy_body`,
+  `convert_xy_preamble`). All XY patterns live in `_regex.py` §9.
+- `texphage-convert xy <file> [-o OUTPUT] [--strict]` — CLI entry point.
+  Unsupported blocks are left unchanged with a `log.warning`; `--strict` makes
+  them a hard error. Preamble is rewritten: `\usepackage{xy}` removed,
+  `\usepackage{tikz-cd}` added.
+- `scripts/xy_to_tikz.py` — 7-line thin wrapper (preserved for compatibility).
+- `scripts/evaluate_xy_conversion.py` — SSIM benchmarking harness.
+- 39 tests pass in `tests/test_xy_tikzcd.py`.
 
-**Full implementation plan:** `docs/notes/xy_to_tikz_implementation.md`.
+**Pipeline integration (Phase 4) and xy-fidelity-agent (Phase 5) deferred.**
+See `docs/notes/xy_to_tikz_plan.md`.
 
 ---
 

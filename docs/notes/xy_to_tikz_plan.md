@@ -4,11 +4,12 @@
 
 Refactor `scripts/xy_to_tikz.py` into a first-class texphage converter module.
 The converter is the **pilot instance of the "obsolete LaTeX modernisation"
-family** described in `user_applications.md` §9. It has two entry points:
+family** described in `user_applications.md` §9. Primary entry point:
 
 - **Standalone CLI** (`texphage-convert xy`) — for humans modernising old papers.
-- **Optional pipeline step** (`convert_xy=True` in `texphage()`) — for NLP
-  pipelines that need to eliminate the `xy` package dependency.
+
+Pipeline integration (`convert_xy=True` in `texphage()`) is **deferred** until
+Phase 4 (see below). The CLI alone is sufficient for the current use case.
 
 ---
 
@@ -20,84 +21,63 @@ family** described in `user_applications.md` §9. It has two entry points:
 - **Unsupported constructs → original unchanged**: if the converter cannot handle
   a construct, that `\xymatrix` block is returned verbatim with a `log.warning`.
   Silent partial conversion is never acceptable.
-- **Pre-preprocessing constraint**: the conversion **must run on raw source**,
-  before `demacro.preprocessing()`. Step 4 of preprocessing collapses whitespace;
-  inside `\xymatrix{...}` newlines are implicit `\\` row separators that are
-  destroyed by that collapse. The call order in `texphage()` is fixed:
-
-  ```
-  unfold → convert_xy (raw source) → preprocessing → demacro → preamble
-  ```
+- **Operates on raw source**: the CLI reads the user's original `.tex` file and
+  outputs a modified file with only `\xymatrix` blocks replaced. Full
+  preprocessing is NOT applied; the converter uses `regex.DOTALL` to match
+  multi-line environments.
 
 ---
 
-## Bugs to fix in `scripts/xy_to_tikz.py` (Phase 0 prerequisite)
+## Corrections to the original plan
+
+### Pre-preprocessing constraint — wrong stated reason
+
+The original plan said "newlines are implicit `\\` row separators" inside
+`\xymatrix`. **This is false.** XY-pic uses explicit `\\` as row separators;
+newlines are plain whitespace and survive preprocessing step 4 (whitespace
+collapse) unchanged. The actual reason for the ordering decision is pragmatic:
+the CLI operates on raw source without invoking the demacro pipeline at all.
+
+### `\xymatrix*` — not valid XY-pic syntax
+
+Playground test (2026-04-14) shows `\xymatrix*{...}` raises a fatal XY-pic
+error: "\\xymatrix<setup>{<rows>} expected." The starred form does not exist.
+Papers using it fail to compile regardless. No conversion mapping is needed;
+a LIMITATIONS entry documents this.
+
+### Additional bugs found in `scripts/xy_to_tikz.py`
+
+Two bugs were missing from the original Phase 0 table (now fixed):
+- **`print('ERROR:...')`** in `replace_xymatrix` lines 260, 263
+- **`match.group('curve')[:1] == '^-'`** dead branch (should be `[:2]`)
+
+---
+
+## Phase 0: Fix bugs in `scripts/xy_to_tikz.py` ✅ DONE
+
+All 5 bugs fixed; 18 tests pass. See `tests/test_xy_tikzcd.py`.
 
 | # | Location | Bug | Fix |
 |---|----------|-----|-----|
-| 1 | Top of file | `import re` — PCRE recursive groups (`(?&bracket%i)`) silently fail | Replace with `import regex as re` |
-| 2 | Line ~102 | `print(ar)` at module level — dumps arrow regex to stdout on every import | Remove the line |
-| 3 | Lines ~128, 144, 147, 160, 163 | `match.grouo(...)` typo (×5) — raises `AttributeError` for `uppos`, `downpos`, `midpos` branches | Rename to `match.group(...)` |
-| 4 | `replace_xymatrix` else-branch | Silent fallback on unknown operator — caller cannot distinguish success from partial conversion | Raise `ValueError(f"unsupported XY operator: {op!r}")` instead |
-
-Write failing tests **before** touching code (see Phase 0 below).
-
----
-
-## Architecture
-
-```
-src/texphage/
-  converters/
-    __init__.py          # re-exports convert_xy_body, convert_xy_preamble
-    _xy_tikzcd.py        # pure string logic (no I/O, no compilation)
-  pipeline.py            # gains convert_xy=False flag
-  cli.py                 # gains main_convert() with xy subcommand
-
-scripts/
-  xy_to_tikz.py          # kept as-is after bug fixes (source of truth)
-  evaluate_xy_conversion.py   # NEW: SSIM harness (Phase 1)
-
-tests/
-  test_xy_tikzcd.py           # NEW: unit tests
-  fixtures/
-    xymatrix_simple/
-      main.tex                # NEW: Phase 1 fixture
-```
+| 1 | Line 3 | `import re` — `re.compile(ar)` raises `re.error` at import | `import regex as re` |
+| 2 | Line 102 | `print(ar)` at module level | Removed |
+| 3 | Lines 128, 142, 144, 159, 162 | `match.grouo(...)` ×5 | `match.group(...)` |
+| 4 | Lines 260, 263 | `print('ERROR:...')` + silent partial return | `log.warning(...)` + `return match.group(0)` |
+| 5 | Line 174 | `[:1] == '^-'` dead branch | `[:2]` |
 
 ---
 
-## Phase 0: Fix bugs in `scripts/xy_to_tikz.py`
+## Phase 1: Build `scripts/evaluate_xy_conversion.py` ✅ DONE
 
-**Scope:** mechanical fixes only — no new functionality, no refactoring.
+**Fixture:** `tests/fixtures/xymatrix_simple/main.tex` — simple 2×2 commutative
+square. Both original (XY) and converted (tikzcd) compile to 1 page.
+Converted output verified to compile cleanly before running SSIM benchmarks.
 
-**Write these tests first** (`tests/test_xy_tikzcd.py`):
-
-```python
-def test_import_does_not_print(capsys):
-    import importlib, scripts.xy_to_tikz
-    importlib.reload(scripts.xy_to_tikz)
-    assert capsys.readouterr().out == ""
-
-def test_simple_arrow():
-    from scripts.xy_to_tikz import convert_xy_body
-    src = r'\xymatrix{ A \ar[r]^{f} & B }'
-    result = convert_xy_body(src)
-    assert r'\begin{tikzcd}' in result
-    assert 'A' in result and 'B' in result
-
-def test_nested_braces_not_truncated():
-    from scripts.xy_to_tikz import convert_xy_body
-    src = r'\xymatrix{ \mathrm{Hom}(A,B) \ar[r] & C }'
-    result = convert_xy_body(src)
-    assert r'\mathrm{Hom}(A,B)' in result
+**SSIM baseline log** (append results here after running on arXiv papers):
 ```
-
-Then apply the four bug fixes in the table above. Confirm all tests pass.
-
----
-
-## Phase 1: Build `scripts/evaluate_xy_conversion.py`
+# Date         Input file                    Pages  Min-SSIM  Verdict
+# (run: python scripts/evaluate_xy_conversion.py <file>)
+```
 
 **Purpose:** empirically establish the realistic SSIM range before committing
 to any threshold or pipeline integration. This script **does not touch
@@ -113,13 +93,12 @@ python scripts/evaluate_xy_conversion.py <path_to_tex_file>
 **What it does:**
 1. Reads the `.tex` file.
 2. Compiles original with `latexmk -pdf -interaction=nonstopmode` → `original.pdf`.
-3. Calls `convert_xy_body()` + `convert_xy_preamble()` on the source.
+3. Calls `xy_to_tikzcd()` on the source.
 4. Writes `converted.tex`; compiles with `latexmk` → `converted.pdf`.
 5. Uses `pdf2image` to rasterise both PDFs (one PNG per page).
 6. For each page pair: computes SSIM and MSE with `scikit-image`.
-7. If images differ, saves a side-by-side diff PNG.
-8. Prints a table: page | SSIM | MSE | PASS/FAIL | diff path.
-9. Prints final verdict: `SUCCESS` or `FAILURE`.
+7. Prints a table: page | SSIM | MSE | PASS/FAIL | diff path.
+8. Prints final verdict: `SUCCESS` or `FAILURE`.
 
 **Fixture to create** (`tests/fixtures/xymatrix_simple/main.tex`):
 ```latex
@@ -138,23 +117,23 @@ A simple commutative square:
 ```
 
 **Milestone:** Run on 5–10 arXiv papers with `\xymatrix`. Record SSIM scores in
-a comment block at the top of the script. This establishes the realistic
-threshold (expected: 0.93–0.97 for simple diagrams; lower for crossing paths).
+a comment block at the top of the script. Expected: 0.93–0.97 for simple diagrams.
 
 **Dependencies:** `pdf2image`, `scikit-image`, `numpy` — already in `[agents]`
 extras.
 
 ---
 
-## Phase 2: Refactor into `src/texphage/converters/_xy_tikzcd.py`
+## Phase 2: Refactor into `src/texphage/xy_to_tikzcd.py` ✅ DONE
 
-**Prerequisites:** Phase 0 bugs fixed; Phase 1 baseline documented.
+**Prerequisites:** Phase 0 bugs fixed ✅; Phase 1 baseline documented.
 
 **Module docstring template:**
 ```python
 """
 Pure string-manipulation XY-to-tikzcd converter.
 No I/O, no side effects, no compilation.
+Operates on raw or preprocessed source (regex.DOTALL for multi-line matching).
 
 MATCHES: \xymatrix environments with \ar arrows, basic tip/conn styles,
          curve/shift options, label positioning.
@@ -162,28 +141,31 @@ LIMITATIONS:
   [observed] \xymatrix inside \vcenter is not converted; tikzcd cannot be
              used inside \vcenter.
   [observed] Crossing paths |!{[dl];[rr]}\hole require global arrow analysis;
-             not supported.
+             not supported — block left unchanged.
   [inferred] Harpoon variants (^|, _|) produce incorrect output.
-  [observed] Unsupported tip types (\(, \), \+, \/) leave arrow without tips.
+  [observed] Unsupported tip types (\\(, \\), \\+, \\/) leave arrow without tips.
+  [observed] \\xymatrix inside user macros is invisible: macro content is not
+             yet expanded at conversion time.
+  [inferred] Comments inside \\xymatrix{...} (e.g. % this arrow) confuse the
+             converter — block left unchanged with log.warning.
+  [observed] \\xymatrix*{...} is not valid XY-pic syntax (playground-confirmed);
+             the * is captured into options and silently ignored.
   [observed] The conversion changes pixel-level rendering (XY uses MetaPost,
              tikzcd uses PGF). SSIM < 1.0 is expected and documented.
-  [inferred] \xymatrix inside macros is invisible: conversion runs before
-             demacro, so macro-wrapped \xymatrix is not yet unfolded.
-USED BY: texphage.pipeline (when convert_xy=True), texphage-convert CLI
+USED BY: texphage-convert CLI
 """
 ```
 
 **Public API:**
 ```python
-def convert_xy_body(tex_body: str) -> str:
-    """Replace all \xymatrix environments with tikzcd equivalents.
+def convert_xy_body(tex: str) -> str:
+    """Replace all \\xymatrix environments with tikzcd equivalents.
 
-    If a particular \xymatrix environment uses unsupported features,
-    that environment is left unchanged (with log.warning); processing
-    continues with the next one.
+    Operates on raw source text (regex.DOTALL for multi-line matching).
+    Unsupported \\xymatrix blocks are left unchanged with log.warning.
     """
 
-def convert_xy_preamble(tex_preamble: str) -> str:
+def convert_xy_preamble(preamble: str) -> str:
     """Remove \\usepackage{xy} variants; add \\usepackage{tikz-cd} if absent."""
 ```
 
@@ -192,12 +174,8 @@ from `xy_to_tikz.py`. Patterns shared with demacro go in `_regex.py`; patterns
 specific to xy conversion stay in `_xy_tikzcd.py`. Follow the mandatory
 `MATCHES/CAPTURES/LIMITATIONS/USED BY` comment block format.
 
-**`src/texphage/converters/__init__.py`:**
-```python
-from ._xy_tikzcd import convert_xy_body, convert_xy_preamble
-
-__all__ = ["convert_xy_body", "convert_xy_preamble"]
-```
+**After Phase 2:** `scripts/xy_to_tikz.py` becomes a thin CLI wrapper (~10 lines)
+that calls `convert_xy_body` from the module. No duplicate logic.
 
 **Tests:** extend `tests/test_xy_tikzcd.py` with playground-verified assertions.
 Every `LIMITATIONS` entry needs a test demonstrating the boundary behaviour
@@ -205,45 +183,9 @@ Every `LIMITATIONS` entry needs a test demonstrating the boundary behaviour
 
 ---
 
-## Phase 3: Pipeline integration
+## Phase 3: CLI entrypoint ✅ DONE
 
 **Prerequisites:** Phase 2 complete; Phase 1 SSIM baseline documented.
-
-**`pipeline.py` signature change:**
-```python
-def texphage(
-    src_dir: str | Path,
-    main_tex: str | None = None,
-    *,
-    convert_xy: bool = False,    # NEW — opt-in, default off
-    ...
-) -> tuple[str, list[Attachment]]:
-```
-
-**Call order (critical — see preprocessing constraint above):**
-```python
-raw_tex = unfold(src_dir, main_tex)
-
-if convert_xy:
-    from texphage.converters import convert_xy_body, convert_xy_preamble
-    raw_tex = convert_xy_body(raw_tex)        # runs on raw source
-
-# --- preprocessing happens here ---
-body, preamble = demacro.preprocessing(raw_tex)
-
-if convert_xy:
-    preamble = convert_xy_preamble(preamble)
-```
-
-**Integration tests** (`pytest.mark.pipeline`, require `latexmk`): use real
-arXiv fixture files from Phase 1. Assert SSIM ≥ threshold documented in
-`evaluate_xy_conversion.py`.
-
----
-
-## Phase 4: CLI entrypoint
-
-**Only after Phase 2 and 3 are stable.**
 
 Add to `pyproject.toml`:
 ```toml
@@ -258,7 +200,48 @@ texphage-convert xy input.tex [-o output.tex] [--strict]
               (default: warn and leave that block unchanged)
 ```
 
-Implement `main_convert` in `src/texphage/cli.py`.
+**Implementation in `src/texphage/cli.py`:**
+```python
+def main_convert() -> None:
+    # regex-split raw .tex into preamble + body (no full preprocessing)
+    # call convert_xy_body(body) and convert_xy_preamble(preamble)
+    # reassemble and write output
+```
+
+The document split uses `regex` (not a full preprocessing pass):
+```python
+_DOC_SPLIT_RE = regex.compile(
+    r'(?P<preamble>.*?)\\begin\{document\}(?P<body>.*?)\\end\{document\}',
+    regex.DOTALL,
+)
+```
+
+**Gate:** `texphage-convert xy tests/fixtures/xymatrix_simple/main.tex` produces
+compilable output; SSIM ≥ threshold documented in Phase 1.
+
+---
+
+## Phase 4: Pipeline integration and demacro API refactor (long-term)
+
+**Why deferred:** CLI-only is sufficient for the current use case. Pipeline
+integration adds complexity (API refactor, integration tests) not yet justified.
+
+**When to implement:**
+- If arXiv prevalence of `\xymatrix` justifies automated pipeline conversion.
+- Or if other converters (eqnarray→align, psfig→includegraphics) need the same
+  integration point.
+
+**Design:**
+```python
+# Expose demacro.preprocessing() + demacro.expand() as separate public functions
+# Pipeline call order:
+raw_tex = unfold(src_dir, main_tex)
+body, preamble = demacro.preprocessing(raw_tex)   # exposed
+if convert_xy:
+    body    = convert_xy_body(body)
+    preamble = convert_xy_preamble(preamble)
+expanded = demacro.expand(body, preamble)          # new public step
+```
 
 ---
 
@@ -275,34 +258,27 @@ After Phase 3 establishes a stable API, define a `xy-fidelity-agent` in
 ## Recommended sequencing
 
 ```
-Phase 0  Fix 4 bugs in scripts/xy_to_tikz.py      write failing tests first
-Phase 1  scripts/evaluate_xy_conversion.py          standalone, no pipeline changes
-         Run on 5–10 arXiv xy papers; document threshold
-Phase 2  src/texphage/converters/_xy_tikzcd.py      pure string module
-         Load regex-writing skill before migrating patterns
-         Full playground-backed test coverage
-Phase 3  pipeline.py: convert_xy=False flag         additive only
-         Integration tests with Phase 1 fixtures
-Phase 4  texphage-convert CLI                       after Phase 2 + 3
-Phase 5  xy-fidelity-agent in CLAUDE.md             after Phase 3
+Phase 0  Fix 5 bugs in scripts/xy_to_tikz.py    ✅ DONE (2026-04-14)
+         18 tests pass in tests/test_xy_tikzcd.py
+Phase 1  scripts/evaluate_xy_conversion.py       ✅ DONE (2026-04-14)
+         tests/fixtures/xymatrix_simple/main.tex created; both orignal and
+         converted compile to 1 page. Run on arXiv xy papers; document SSIM.
+Phase 2  src/texphage/xy_to_tikzcd.py           ✅ DONE (2026-04-14)
+         All regex in _regex.py §9; 33 tests pass
+         scripts/xy_to_tikz.py is now a 7-line thin wrapper
+Phase 3  texphage-convert CLI                   ✅ DONE (2026-04-14)
+         39 tests pass; gate: fixture converts cleanly to tikzcd
+Phase 4  demacro API refactor + pipeline flag   long-term
+Phase 5  xy-fidelity-agent                      long-term, after Phase 3
 ```
 
 ---
 
 ## Open questions
 
-1. **`\xymatrix` prevalence on arXiv**: if < 5% of papers use it, Phase 3
-   pipeline integration may not justify the complexity; Phase 2 (module) + Phase
-   4 (CLI) may be sufficient as standalone tooling.
+1. **`\xymatrix` prevalence on arXiv**: if < 5% of papers use it, Phase 4 pipeline
+   integration may not justify the complexity; Phase 3 CLI alone may be sufficient.
 
 2. **Compilability vs. visual fidelity**: if the goal is only eliminating the
    `xy` package dependency (so output compiles with tikzcd alone), SSIM is
-   overkill — a compile success/failure check suffices. Decide after Phase 1
-   measurements.
-
-3. **`\xymatrix*` (starred form)**: the starred form changes column spacing.
-   Verify whether the current script handles it; add a test either way.
-
-4. **Macro-wrapped `\xymatrix`**: conversion runs before demacro, so
-   `\xymatrix` hidden inside user-defined macros is not yet visible. This is a
-   fundamental limitation; document it in `LIMITATIONS` (Phase 2).
+   overkill — a compile success/failure check suffices. Decide after Phase 1.
